@@ -65,8 +65,6 @@ class RaceState:
     def register_horses(self, horses: list[HorseEntry]) -> dict:
         """Register the field before arming. Replaces any existing registration."""
         with self._lock:
-            if self.status == RaceStatus.RUNNING:
-                return {"ok": False, "error": "Cannot re-register mid-race"}
             self._reset()
             for h in horses:
                 self.registered_horses[h.horse_id] = h
