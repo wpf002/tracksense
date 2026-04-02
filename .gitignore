@@ -3,4 +3,6 @@ __pycache__/
 *.pyo
 .env
 venv/
+.venv/
 .DS_Store
+pyrightconfig.json

@@ -1,207 +1,195 @@
 # TrackSense Hardware Reference
 
-## Overview
-
-TrackSense needs to detect **which horse crossed the finish line, in what order, at race speed**.
-
-A thoroughbred covers the finish line at approximately **60–70 km/h (37–43 mph)**. The system has roughly **50–150ms** to read each tag as the horse transits the antenna field. Every hardware decision flows from this constraint.
+## Lip-Implant UHF RFID Finish-Line System
 
 ---
 
-## Why NOT the Standard Horse Microchip
+## Why Lip Implant, Not Saddle Cloth
 
-Every registered horse has an ISO 11784/11785 LF (134.2 kHz) microchip implanted in the nuchal ligament of the neck. **This chip cannot be used for finish-line detection.** Reasons:
+The standard approach in commercial RFID race timing (MyLaps, ChronoTrack) uses tags attached to racing equipment. TrackSense takes a different approach: a **permanent UHF glass capsule implant in the horse's lower lip**.
 
-- Read range: 10–15 cm maximum
-- Requires reader to be essentially in contact with the horse
-- LF cannot read through tissue and movement at speed
-- No realistic antenna geometry covers a full race track width
+Advantages:
 
-**The vet microchip is for identification only.** TrackSense uses a separate UHF tag that is physically attached to the horse's racing equipment for each race.
+- Permanent identification — no pre-race tagging ritual, no tag left on the rail
+- Cannot be lost, forgotten, or placed on the wrong horse
+- Lip tissue is thin → better RF signal transmission than neck or hindquarter implant sites
+- Horse's head leads the body at the finish line → chip enters the antenna field before the body mass obstructs signal
 
 ---
 
-## Tag Standard: UHF Gen2 (EPC Class 1 Gen 2 / ISO 18000-6C)
+## Why NOT the Standard Vet Microchip
+
+Every registered horse already has an ISO 11784/11785 **LF (134.2 kHz)** chip in the nuchal ligament of the neck. This chip **cannot be used for finish-line detection**:
+
+- Maximum read range: 10–15 cm in open air, ~8–12 cm through tissue
+- At 65 km/h, a horse's lip transits a fixed point in ~8ms
+- The antenna would need to be essentially in contact with the horse
+- LF chips have no anti-collision — multiple horses simultaneously = unreadable
+
+**The vet microchip is for identity verification only.** TrackSense requires a separate UHF chip.
+
+---
+
+## Recommended Chip: UHF Gen2 Glass Capsule
 
 | Property | Value |
-|---|---|
+| --- | --- |
+| Standard | EPC Class 1 Gen 2 / ISO 18000-6C |
 | Frequency | 902–928 MHz (US) / 865–868 MHz (EU) |
-| Read range | 3–8 metres (passive, no battery) |
-| Read speed | <1ms per tag |
-| Multi-tag | 100s of tags/second (anti-collision built in) |
-| Tag cost | $0.10–$2.00 depending on form factor |
+| Form factor | Glass capsule, 23mm × 3.85mm |
+| Injection | Standard 12-gauge implant gun — same procedure as vet microchip |
+| Open-air read range | 3–8m |
+| Through-tissue (lip) read range | 60–100cm |
+| Read time at 65 km/h | ~8ms transit window, 2–4 reads per pass |
+| Anti-collision | Yes — multiple horses simultaneously readable |
+| EPC programmable | Yes — write horse ID before injection |
 
-This is the correct standard. It is used in logistics, livestock tracking, and official RFID race timing systems (e.g. ChronoTrack, MyLaps RFID).
+### Specific Products
 
-### Tag Form Factor Selection
+- **Destron Fearing UHF Glass Transponder** — well-established livestock implant, UHF Gen2
+- **Allflex UHF Injectable Transponder** — widely available, ISO 18000-6C compliant
+- **Pit Tag UHF 23mm** — commonly used in fish/wildlife tagging, suitable for equine lip
 
-For horse racing, the tag needs to survive sweat, contact, and movement. Options:
+All of the above use the same 12-gauge needle injector. The procedure is identical to a standard microchip implant.
 
-| Form Factor | Mount Location | Notes |
-|---|---|---|
-| **Flexible wet inlay** | Laminated into race number bib | Most common in official systems. Hidden from view. |
-| **Hard ABS enclosure** | Girth strap loop or breastplate D-ring | Survives washing, reusable, easy to swap per race |
-| **Adhesive label inlay** | Inside back of saddle cloth | Low cost, single-use |
-| **Cable-tie mount** | Fetlock boot or tendon boot | Lower priority — leg movement increases read variance |
+---
 
-**Recommendation: Flexible inlay laminated into the saddle cloth number.** This is how major RFID race timing systems operate. The tag is at ~1.0–1.2m height, centred on the horse, and presents broad face to the antenna.
+## Injection Site: Lower Lip
+
+**Anatomy:** The lower lip (labium inferius) has a thin layer of submucous tissue over the orbicularis oris muscle. This is thinner than the nuchal ligament site used for the standard vet chip — meaning better RF signal transmission.
+
+**Procedure:**
+
+1. Clean the injection site with antiseptic
+2. Tent the lip tissue with thumb and forefinger
+3. Insert the 12-gauge needle parallel to the lip surface, bevel up
+4. Deposit the capsule into the submucous layer, not the muscle
+5. Withdraw needle, apply light pressure for 10 seconds
+6. Verify implant with handheld UHF reader immediately post-injection
+7. Log the EPC against the horse's registered identity
+
+**Aftercare:** No special aftercare required. The glass capsule is inert. The injection site heals within 48–72 hours.
+
+**Orientation:** The capsule will settle parallel to the lip surface. This is acceptable — circular polarised antennas handle any tag orientation.
+
+**Vet sign-off:** This is a minor veterinary procedure. Must be performed or supervised by a licensed veterinarian.
 
 ---
 
 ## Reader Hardware
 
-### Recommended: Impinj R220 or R420
+### Recommended: Impinj R220
 
-| Spec | R220 | R420 |
-|---|---|---|
-| Antennas | 2 ports | 4 ports |
-| Read rate | 150 tags/sec | 1100 tags/sec |
-| Interface | Ethernet (LLRP) | Ethernet (LLRP) |
-| IP rating | IP52 | IP52 |
-| Power | PoE or 12V DC | PoE or 12V DC |
+| Spec | Value |
+| --- | --- |
+| Antenna ports | 2 |
+| Read rate | 150 tags/sec |
+| Interface | Ethernet (LLRP protocol) |
+| Power | PoE (802.3af) |
+| IP rating | IP52 (put in NEMA 4 box outdoors) |
+| Range | Configured via power level — set to cover 80–100cm |
 
-The R220 is sufficient for a finish line with 2 antennas. The R420 is better if you want 4 antenna ports for redundancy.
+For LLRP integration with TrackSense, use [sllurp](https://github.com/ransford/sllurp) (open source Python LLRP client) and replace the `TCPReader` class in `hardware/reader.py`.
 
-**Software interface:** Use [sllurp](https://github.com/ransford/sllurp) — open source Python LLRP client. Replace the `TCPReader` class in `hardware/reader.py` with an sllurp-based reader when moving to Impinj.
+### Budget Alternative: CHAFON CF-RU5202
 
-### Budget Alternative: CHAFON CF-RU5202 or similar
-
-- Serial/USB output, ASCII protocol
-- Works with `SerialReader` in `hardware/reader.py` as-is
-- Typical output: `EPC: E200681100000000AABBCCDD\r\n`
-- Read range is shorter (2–4m) but adequate with close antenna placement
-- ~$150–300 USD
+- USB/serial output, ASCII protocol
+- Works with `SerialReader` in `hardware/reader.py` out of the box
+- Read range 2–4m (more than enough at 60–100cm implant range)
+- ~$200 USD
 
 ---
 
-## Antenna Configuration
+## Antenna Configuration for Lip-Height Reading
 
-### Geometry: Gate Setup
+The lip implant changes antenna geometry significantly compared to a saddle cloth system. The horse's nose is at **0.5–0.8m** at full gallop (head drops and extends forward).
 
-Place two antennas in a **gate configuration** straddling the track at the finish line.
+### Gate Layout
 
-```
+```text
 TRACK WIDTH (~15–25m)
 |←————————————————————————————→|
 
-[ANT-L]                    [ANT-R]
-  │         HORSE →          │
-  │    ←——antenna field——→   │
-  │                           │
-
-Post/Rail                Post/Rail
-~1.2m height             ~1.2m height
-Aimed inward             Aimed inward
+[ANT-L]  ←— 0.5–0.7m height —→  [ANT-R]
+   │                               │
+   │      ← antenna field →        │
+   │   HEAD leads body at finish   │
+   │                               │
+Post                             Post
+aimed inward + 10° upward tilt
 ```
 
-- Each antenna covers half the track width
-- For wider tracks (>15m) use 4 antennas (2 per side, staggered)
-- Mount height: **1.0–1.3m** — targets the saddle cloth / girth area
-- Aim: **15–20° downward tilt** toward the track centre line
+- Antenna height: **0.5–0.7m** — targets nose/lip height at race speed
+- Tilt: **10° upward** — the horse's head is extended forward and slightly down; aiming slightly up centres the field on the lip
+- For track widths >12m: use 4 antennas (2 per side), overlapping fields in the centre
+- Gate depth (front to back): 0.5–1.0m — enough for 2–4 reads at race speed
 
 ### Antenna Specs
 
 | Property | Requirement |
-|---|---|
-| Polarisation | **Circular (RHCP)** — handles tag orientation variation |
-| Gain | 6–9 dBiC |
-| Frequency | Must match reader band (902–928 MHz US) |
-| Cable | LMR-400 or equivalent low-loss coax |
-| Max cable run | 10m with LMR-400 before meaningful loss |
-| Connector | RP-TNC or N-type (match reader port) |
+| --- | --- |
+| Polarisation | **Circular (RHCP)** — tag orientation in lip varies, linear will miss reads |
+| Gain | 6–8 dBiC |
+| Frequency | Match reader band exactly |
+| Cable | LMR-400, max 10m run |
+| Connector | N-type or RP-TNC (match reader port) |
 
-**Do not use linear polarised antennas.** Tag read rate drops significantly when tag and antenna polarisation are misaligned, and you cannot control tag angle on a moving horse.
+**Recommended:** Laird S9028PCR or Times-7 A6028-RA. Both are outdoor-rated, circular polarised, and well-suited to this geometry.
 
-### Recommended Antennas
+---
 
-- **Laird S9028PCR** — 8.5 dBiC circular, outdoor rated, $150–200
-- **Times-7 A6028-RA** — excellent pattern, rain cover available
-- **Budget:** MTI MT-242020/TRH — adequate for testing
+## EPC Programming and Horse Registration
+
+Each chip is programmed with a unique EPC before injection. Recommended format:
+
+```text
+E200 6811 0000 0001 XXXX XXXX
+                    ↑ unique horse ID (hex)
+```
+
+**Workflow:**
+
+1. Program EPC onto chip with a desktop UHF programmer before injection
+2. Record EPC → horse name mapping in your horse registry
+3. Before each race, POST to `/race/register` with each horse's EPC as `horse_id`
+4. ARM the race — backend is ready to receive finish-line reads
+
+Alternatively: inject factory-EPC chips, read the EPC post-injection with a handheld reader, and register that EPC to the horse. No programmer needed.
 
 ---
 
 ## Power and Weatherproofing
 
 | Item | Spec |
-|---|---|
-| Reader power | PoE (802.3af) preferred — single cable, no separate PSU |
-| PoE injector/switch | Any 802.3af capable switch |
-| Cable runs to antennas | LMR-400, weatherproof N-type connectors |
-| Reader enclosure | NEMA 4 rated box if outdoors (IP52 reader in IP65 box) |
-| Antenna connectors | Seal with self-amalgamating tape at the antenna port |
-| Operating temp | Most UHF readers: -20°C to +55°C |
-
-If the reader is inside a timing tower or judges' booth, only the antenna cables need to run outdoors.
+| --- | --- |
+| Reader power | PoE 802.3af — single cable, no separate PSU at the rail |
+| PoE switch/injector | Any 802.3af switch in the timing booth |
+| Backup power | Small UPS on the PoE switch — 10 min covers any race |
+| Reader enclosure | IP52 reader in IP65/NEMA 4 box at the post |
+| Antenna cables | LMR-400 with self-amalgamating tape on all outdoor connectors |
+| Operating temp | -20°C to +55°C (standard UHF readers) |
 
 ---
 
-## Connecting to TrackSense
+## Pre-Race Validation Protocol
 
-### With Impinj (LLRP/TCP)
+Run this before every race meeting:
 
-```python
-# In hardware/reader.py, replace TCPReader with:
-# pip install sllurp
-
-from sllurp.llrp import LLRPClient
-
-# sllurp fires a callback on each tag read
-# In the callback, call emit_tag(epc) → POST to /tags/submit
-```
-
-The EPC (Electronic Product Code) from the reader IS the tag_id. Register horses in TrackSense with their EPC as the horse_id.
-
-### With Serial/USB Reader
-
-```bash
-# Identify device
-ls /dev/ttyUSB* /dev/ttyACM*
-
-# Check baud rate in reader config (usually printed on reader or in manual)
-# Common: 115200, 57600, 9600
-
-# Run TrackSense in hardware mode
-python main.py --hardware serial
-
-# Or set env vars:
-RFID_PORT=/dev/ttyUSB0 RFID_BAUD=115200 python main.py --hardware serial
-```
+1. **Static read:** Place a programmed chip (same form factor as implant) at lip height in the gate centre. Confirm read at `/race/finish-order`.
+2. **Walk pass:** Walk a person through carrying the chip at 0.6m height. Confirm read. Check duplicate count — should be 4–8 reads at walking speed.
+3. **Trot pass:** Trot a horse through. Confirm read. Duplicate count should drop to 3–5.
+4. **Gallop pass:** Gallop a horse through. Minimum acceptable: 2 reads per pass. If dropping to 1, adjust antenna aim or increase reader transmit power.
+5. **Simultaneous pass:** Send 2 horses through the gate together. Confirm both EPCs recorded in correct order.
+6. **Noise check:** Confirm no phantom reads appear between passes. If they do, reduce reader power level slightly.
 
 ---
 
-## EPC / Tag ID Management
-
-EPC codes from UHF tags are 12-byte (96-bit) hex strings like:
-```
-E200 6811 0000 0000 AABB CCDD
-```
-
-**Two approaches for horse-to-EPC mapping:**
-
-1. **Pre-programmed tags:** Write a simple ID (e.g. "TAG-001") into the EPC field when you program the tag. Register horses in TrackSense with that ID.
-
-2. **Read factory EPC, then register:** Read each tag's factory EPC, then use `/race/register` to map that EPC to a horse name. More robust — no programming equipment needed.
-
-Approach 2 is recommended for field use. You can read EPCs with any UHF reader and a laptop before the race.
-
----
-
-## Validation Before Live Use
-
-1. **Static read test:** Mount antennas, place a tagged saddle cloth at the finish line, confirm reads appear at `/race/finish-order`
-2. **Walk-speed test:** Walk a person through the gate carrying the tag. Confirm read.
-3. **Trot test:** Trot a horse through. Confirm read. Check duplicate count — should be 3–10 reads per pass.
-4. **Full-speed test:** Gallop a horse through. If read rate drops below 2 per pass, adjust antenna aim or increase reader power level.
-5. **Multi-horse test:** Send 2–3 horses through simultaneously. Confirm all are recorded in correct order.
-
----
-
-## Known Limitations and Mitigations
+## Known Limitations
 
 | Issue | Cause | Mitigation |
-|---|---|---|
-| Missed read | Tag obscured by jockey leg, sweat, foil on saddle | Place 2nd tag at different location on same horse (breastplate) |
-| Wrong order | Two horses nose-to-nose within 50ms | Acceptable in practice — photo finish decides < 1 length margins |
-| Duplicate tag IDs | Two tags with same EPC | Check EPC uniqueness before race. Factory EPCs are globally unique. |
-| Reader reboot mid-race | Power interruption | PoE + UPS on the PoE switch. 10-minute battery covers any race. |
-| RF interference | Other 900MHz devices near finish line | Coordinate with venue. Race-day comms often use 460MHz or 800MHz — usually fine. |
+| --- | --- | --- |
+| Missed read | Chip rotated perpendicular to antenna at transit | Circular polarised antenna handles this — if still missing, add a second antenna at a different angle |
+| Swollen lip post-injection | Normal tissue response | Do not race within 72 hours of injection |
+| Chip migration | Rare, can move along lip tissue plane | Verify chip position with handheld reader at each race meeting |
+| Two horses nose-to-nose | Photo finish margin | System records order accurately if any time gap exists; margins under ~5ms are photo finish territory regardless of timing method |
+| Reader power interruption | Cable fault, power loss | UPS on PoE switch; redundant antenna on second reader port |

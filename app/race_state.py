@@ -137,6 +137,7 @@ class RaceState:
                 self.race_start_mono = now_mono
                 self.status = RaceStatus.RUNNING
 
+            assert self.race_start_mono is not None
             elapsed_ms = int((now_mono - self.race_start_mono) * 1000)
             position = len(self.finish_order) + 1
 

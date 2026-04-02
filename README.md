@@ -8,7 +8,7 @@ Ingests RFID tag reads from a finish-line antenna gate and records horse finish 
 
 ## Project Structure
 
-```
+```text
 tracksense/
 ├── app/
 │   ├── server.py         FastAPI app instance
@@ -41,7 +41,7 @@ The backend starts on `localhost:8000`, the mock reader fires 20 horses through 
 ## API Endpoints
 
 | Method | Path | Description |
-|---|---|---|
+| --- | --- | --- |
 | GET | `/health` | Liveness check |
 | POST | `/race/register` | Register horse field |
 | POST | `/race/arm` | Arm race (keep horses, clear results) |
