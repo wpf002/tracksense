@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  tracksense-backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: tracksense
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    # For hardware reader access on Linux host:
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  # Uncomment to run mock reader in Docker too
+  # mock-reader:
+  #   build:
+  #     context: ..
+  #     dockerfile: docker/Dockerfile
+  #   depends_on:
+  #     - tracksense-backend
+  #   environment:
+  #     - BACKEND_URL=http://tracksense-backend:8000
+  #   command: python -m scripts.mock_reader
