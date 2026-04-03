@@ -19,6 +19,30 @@ async def lifespan(app: FastAPI):
             logger.info("Database tables initialised.")
         except Exception as exc:  # noqa: BLE001
             logger.warning("DB init skipped — %s", exc)
+
+    try:
+        from app.database import SessionLocal
+        from app.models import GateRecord, VenueRecord
+        from app.gate_registry import registry
+
+        db = SessionLocal()
+        try:
+            venues = db.query(VenueRecord).all()
+            for venue in venues:
+                registry.create_venue(venue.venue_id, venue.name, venue.total_distance_m)
+                gates = db.query(GateRecord).filter_by(venue_id=venue.venue_id).all()
+                for gate in gates:
+                    registry.add_gate(
+                        venue.venue_id, gate.reader_id, gate.name,
+                        gate.distance_m, gate.is_finish,
+                    )
+            if venues:
+                logger.info("GateRegistry hydrated — %d venue(s) loaded.", len(venues))
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("GateRegistry hydration skipped — %s", exc)
+
     yield
 
 
