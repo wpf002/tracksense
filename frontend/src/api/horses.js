@@ -26,3 +26,12 @@ export const addVetRecord = (epc, body) =>
 
 export const compareHorses = (epc1, epc2) =>
   client.get(`/horses/compare/${epc1}/vs/${epc2}`).then((r) => r.data)
+
+export const getHorseWorkouts = (epc) =>
+  client.get(`/horses/${epc}/workouts`).then((r) => r.data.workouts)
+
+export const getHorseCheckins = (epc) =>
+  client.get(`/horses/${epc}/checkins`).then((r) => r.data.checkins)
+
+export const getHorseTestBarn = (epc) =>
+  client.get(`/horses/${epc}/testbarn`).then((r) => r.data.test_barn_records)
