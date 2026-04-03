@@ -81,10 +81,12 @@ function interpolateDist(horse, currentElapsedMs, totalDistanceM) {
     const prev = events[events.length - 2]
     const dt = last.elapsed_ms - prev.elapsed_ms
     if (dt > 0) speedMpMs = (last.distance_m - prev.distance_m) / dt
-  } else if (last.elapsed_ms > 0) {
+  } else if (last.elapsed_ms > 0 && last.distance_m > 0) {
+    // Single event past the start — average speed from gun to here
     speedMpMs = last.distance_m / last.elapsed_ms
   } else {
-    // At START gate (elapsed=0, dist=0) — use default early-race speed (~65 km/h)
+    // At START gate (distance=0) regardless of elapsed — can't compute meaningful
+    // speed from a zero-distance event, so use default early-race speed (~65 km/h)
     speedMpMs = 0.018
   }
 
