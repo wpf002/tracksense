@@ -162,6 +162,126 @@ VENUES = [
         ],
         "segments_ms": [5000, 19000, 18000, 15000],
     },
+    # ── USA ───────────────────────────────────────────────────────────
+    {
+        "venue_id": "BELMONT_PARK",
+        "name": "Belmont Park",
+        "distance": 2414.0,  # 1.5 miles — Belmont Stakes
+        "gates": [
+            ("GATE-START",  "Start",      0.0,    False),
+            ("GATE-F2",     "Furlong 2",  402.0,  False),
+            ("GATE-F4",     "Furlong 4",  804.0,  False),
+            ("GATE-F6",     "Furlong 6",  1207.0, False),
+            ("GATE-F8",     "Furlong 8",  1609.0, False),
+            ("GATE-F10",    "Furlong 10", 2012.0, False),
+            ("GATE-FINISH", "Finish",     2414.0, True),
+        ],
+        "segments_ms": [5000, 19500, 19500, 19500, 19500, 19500],
+    },
+    {
+        "venue_id": "SANTA_ANITA",
+        "name": "Santa Anita Park",
+        "distance": 1609.0,  # 1 mile main dirt track
+        "gates": [
+            ("GATE-START",  "Start",     0.0,    False),
+            ("GATE-F2",     "Furlong 2", 402.0,  False),
+            ("GATE-F4",     "Furlong 4", 804.0,  False),
+            ("GATE-F6",     "Furlong 6", 1207.0, False),
+            ("GATE-FINISH", "Finish",    1609.0, True),
+        ],
+        "segments_ms": [5000, 19500, 19500, 20000],
+    },
+    {
+        "venue_id": "PIMLICO",
+        "name": "Pimlico Race Course",
+        "distance": 1911.0,  # 1.1875 miles — Preakness Stakes
+        "gates": [
+            ("GATE-START",  "Start",     0.0,    False),
+            ("GATE-F2",     "Furlong 2", 400.0,  False),
+            ("GATE-F4",     "Furlong 4", 800.0,  False),
+            ("GATE-F6",     "Furlong 6", 1200.0, False),
+            ("GATE-F8",     "Furlong 8", 1600.0, False),
+            ("GATE-FINISH", "Finish",    1911.0, True),
+        ],
+        "segments_ms": [5000, 19000, 19000, 19000, 16000],
+    },
+    {
+        "venue_id": "CHURCHILL_DOWNS",
+        "name": "Churchill Downs",
+        "distance": 2012.0,  # 1.25 miles — Kentucky Derby
+        "gates": [
+            ("GATE-START",  "Start",     0.0,    False),
+            ("GATE-F2",     "Furlong 2", 402.0,  False),
+            ("GATE-F4",     "Furlong 4", 804.0,  False),
+            ("GATE-F6",     "Furlong 6", 1207.0, False),
+            ("GATE-F8",     "Furlong 8", 1609.0, False),
+            ("GATE-FINISH", "Finish",    2012.0, True),
+        ],
+        "segments_ms": [5000, 19500, 19500, 19500, 20000],
+    },
+    {
+        "venue_id": "SARATOGA",
+        "name": "Saratoga Race Course",
+        "distance": 1810.0,  # 1.125 miles — Travers Stakes
+        "gates": [
+            ("GATE-START",  "Start",     0.0,    False),
+            ("GATE-F2",     "Furlong 2", 402.0,  False),
+            ("GATE-F4",     "Furlong 4", 804.0,  False),
+            ("GATE-F6",     "Furlong 6", 1207.0, False),
+            ("GATE-FINISH", "Finish",    1810.0, True),
+        ],
+        "segments_ms": [5000, 19500, 19500, 21000],
+    },
+    {
+        "venue_id": "KEENELAND",
+        "name": "Keeneland Race Course",
+        "distance": 1609.0,  # 1 mile main oval
+        "gates": [
+            ("GATE-START",  "Start",     0.0,    False),
+            ("GATE-F2",     "Furlong 2", 402.0,  False),
+            ("GATE-F4",     "Furlong 4", 804.0,  False),
+            ("GATE-F6",     "Furlong 6", 1207.0, False),
+            ("GATE-FINISH", "Finish",    1609.0, True),
+        ],
+        "segments_ms": [5000, 19500, 19500, 20000],
+    },
+    {
+        "venue_id": "RILLITO_PARK",
+        "name": "Rillito Park Racetrack",
+        "distance": 402.0,  # 440 yards — quarter horse sprint
+        "gates": [
+            ("GATE-START",  "Start",  0.0,   False),
+            ("GATE-MID",    "Mid",    200.0, False),
+            ("GATE-FINISH", "Finish", 402.0, True),
+        ],
+        "segments_ms": [4000, 4500],
+    },
+    {
+        "venue_id": "DEL_MAR",
+        "name": "Del Mar Thoroughbred Club",
+        "distance": 1609.0,  # 1 mile main track
+        "gates": [
+            ("GATE-START",  "Start",     0.0,    False),
+            ("GATE-F2",     "Furlong 2", 402.0,  False),
+            ("GATE-F4",     "Furlong 4", 804.0,  False),
+            ("GATE-F6",     "Furlong 6", 1207.0, False),
+            ("GATE-FINISH", "Finish",    1609.0, True),
+        ],
+        "segments_ms": [5000, 19500, 19500, 20000],
+    },
+    {
+        "venue_id": "DELTA_DOWNS",
+        "name": "Delta Downs Racetrack",
+        "distance": 1408.0,  # 0.875 miles main track
+        "gates": [
+            ("GATE-START",  "Start",     0.0,    False),
+            ("GATE-F2",     "Furlong 2", 400.0,  False),
+            ("GATE-F4",     "Furlong 4", 800.0,  False),
+            ("GATE-F6",     "Furlong 6", 1100.0, False),
+            ("GATE-FINISH", "Finish",    1408.0, True),
+        ],
+        "segments_ms": [5000, 19000, 17500, 15500],
+    },
 ]
 
 # (venue_idx, distance_m, race_date, field_indices)
@@ -174,8 +294,19 @@ RACE_SCHEDULE = [
     (5, 1400.0, "2026-02-14T15:00:00", [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]),  # EAGLE_FARM
     (0, 1609.0, "2026-02-21T14:00:00", [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]),  # FLEMINGTON
     (1, 1200.0, "2026-02-28T15:00:00", [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]),  # CAULFIELD
+    (0, 1609.0, "2026-02-21T14:00:00", [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]),  # FLEMINGTON
+    (1, 1200.0, "2026-02-28T15:00:00", [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]),  # CAULFIELD
     (0, 1609.0, "2026-03-07T14:30:00", [0, 1, 2, 3, 4, 5, 9, 10, 14, 15]),   # FLEMINGTON
     (1, 1200.0, "2026-03-28T15:00:00", [6, 7, 8, 11, 12, 13, 16, 17, 18, 19]), # CAULFIELD
+    (6,  2414.0, "2026-04-05T17:00:00", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),       # BELMONT_PARK
+    (7,  1609.0, "2026-04-12T17:30:00", [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]),  # SANTA_ANITA
+    (8,  1911.0, "2026-04-19T17:00:00", [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]),  # PIMLICO
+    (9,  2012.0, "2026-04-26T18:00:00", [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]),  # CHURCHILL_DOWNS
+    (10, 1810.0, "2026-05-03T17:00:00", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),       # SARATOGA
+    (11, 1609.0, "2026-05-10T17:30:00", [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]),  # KEENELAND
+    (12,  402.0, "2026-05-17T17:00:00", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),       # RILLITO_PARK
+    (13, 1609.0, "2026-05-24T17:30:00", [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]),  # DEL_MAR
+    (14, 1408.0, "2026-05-31T17:00:00", [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]),  # DELTA_DOWNS
 ]
 
 SPEED_PROFILES = {
@@ -213,7 +344,7 @@ def simulate_gate_times(horse: dict, segments_ms: list[int]) -> list[int]:
     times = [0]
     cumulative = 0
     for i, base_ms in enumerate(segments_ms):
-        seg = int(base_ms * multipliers[i] * base_speed * random.uniform(0.97, 1.03))
+        seg = int(base_ms * multipliers[i % len(multipliers)] * base_speed * random.uniform(0.97, 1.03))
         cumulative += seg
         times.append(cumulative)
     return times

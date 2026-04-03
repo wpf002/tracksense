@@ -6,11 +6,11 @@ const SILK_COLORS = [
   '#0284c7', '#ea580c', '#059669', '#7c3aed', '#be185d',
 ]
 
-const W = 800, H = 290
+const W = 800, H = 310
 const cx = W / 2, cy = H / 2
-// More elongated oval — closer to a real racetrack shape
-const OUTER_RX = 355, OUTER_RY = 100
-const TRACK_W = 28
+// Balanced oval — ~2.5:1 ratio gives natural racetrack curves
+const OUTER_RX = 300, OUTER_RY = 118
+const TRACK_W = 26
 const INNER_RX = OUTER_RX - TRACK_W, INNER_RY = OUTER_RY - TRACK_W
 const MID_RX   = OUTER_RX - TRACK_W / 2, MID_RY = OUTER_RY - TRACK_W / 2
 
@@ -32,7 +32,12 @@ function ovalNormal(a, rx, ry) {
 // and an estimated speed from its recent sectional, extrapolated to currentElapsedMs.
 function interpolateDist(horse, currentElapsedMs, totalDistanceM) {
   const events = horse.events ?? []
-  if (events.length === 0) return 0
+  if (events.length === 0) {
+    // Race is running but this horse hasn't been read yet — extrapolate from gun
+    return currentElapsedMs > 0
+      ? Math.min(0.018 * currentElapsedMs, totalDistanceM)
+      : 0
+  }
 
   const last = events[events.length - 1]
 
@@ -66,7 +71,7 @@ export default function TrackMap({ horses = [], totalDistanceM = 1600, gates = [
     <svg
       viewBox={`0 0 ${W} ${H}`}
       className="w-full bg-bg"
-      style={{ maxHeight: 290 }}
+      style={{ maxHeight: 310 }}
       aria-label="Live track position map"
     >
       {/* Track band */}
