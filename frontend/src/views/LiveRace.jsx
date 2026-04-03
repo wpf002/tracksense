@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useRaceStore from '../store/raceStore'
 import { getRaceStatus, getRaceState, armRace, resetRace, simulateRace } from '../api/races'
+import { getVenue } from '../api/venues'
 import DataTable from '../components/ui/DataTable'
 import TimingDisplay, { formatMs } from '../components/ui/TimingDisplay'
 import StatBadge from '../components/ui/StatBadge'
 import LiveDot from '../components/ui/LiveDot'
+import TrackMap from '../components/ui/TrackMap'
 
 const STATUS_COLORS = {
   idle: 'text-text-muted',
@@ -48,6 +50,7 @@ export default function LiveRace() {
   const [armError, setArmError] = useState(null)
   const [resetError, setResetError] = useState(null)
   const [simulateError, setSimulateError] = useState(null)
+  const [venueId, setVenueId] = useState(null)
 
   // Poll /race/status every 2s
   useQuery({
@@ -73,9 +76,16 @@ export default function LiveRace() {
     queryFn: async () => {
       const data = await getRaceState()
       if (data.horses) setHorses(data.horses)
+      if (data.venue_id) setVenueId(data.venue_id)
       return data
     },
     refetchInterval: 3000,
+  })
+
+  const { data: venueData } = useQuery({
+    queryKey: ['venue', venueId],
+    queryFn: () => getVenue(venueId),
+    enabled: !!venueId,
   })
 
   // Live elapsed timer when running
@@ -336,6 +346,22 @@ export default function LiveRace() {
           value={horses.filter((h) => h.finish_position == null).length}
         />
       </div>
+
+      {/* Track map */}
+      {horses.length > 0 && venueData && (
+        <div className="border border-border mb-6">
+          <div className="px-4 py-2 border-b border-border bg-surface">
+            <span className="text-xs text-text-muted uppercase tracking-widest font-semibold">
+              Track — {venueData.name}
+            </span>
+          </div>
+          <TrackMap
+            horses={horses}
+            totalDistanceM={venueData.total_distance_m}
+            gates={venueData.gates ?? []}
+          />
+        </div>
+      )}
 
       {/* Race table */}
       <div className="border border-border bg-surface">
