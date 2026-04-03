@@ -305,6 +305,40 @@ class AddVetRecordRequest(BaseModel):
 
 
 # ------------------------------------------------------------------ #
+# Phase 5A request models
+# ------------------------------------------------------------------ #
+
+class AddWorkoutRequest(BaseModel):
+    workout_date: str = Field(..., description="ISO date e.g. '2026-04-01'")
+    distance_m: float
+    surface: Optional[str] = None
+    duration_ms: Optional[int] = None
+    track_condition: Optional[str] = None
+    trainer_name: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class CheckInRequest(BaseModel):
+    scanned_by: Optional[str] = None
+    location: Optional[str] = None
+    race_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class TestBarnCheckInRequest(BaseModel):
+    checkin_by: Optional[str] = None
+    race_id: Optional[int] = None
+    sample_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TestBarnCheckOutRequest(BaseModel):
+    checkout_by: Optional[str] = None
+    result: str = "Clear"
+    notes: Optional[str] = None
+
+
+# ------------------------------------------------------------------ #
 # Phase 3 — Horse identity platform
 # ------------------------------------------------------------------ #
 
@@ -524,3 +558,141 @@ def persist_race(race_id: int, db: Session = Depends(get_db)):
     if not result["ok"]:
         raise HTTPException(404, result["error"])
     return result
+
+
+# ------------------------------------------------------------------ #
+# Phase 5A — Welfare & operational workflows
+# ------------------------------------------------------------------ #
+
+@router.post("/horses/{epc}/workouts")
+def add_workout(epc: str, req: AddWorkoutRequest, db: Session = Depends(get_db)):
+    result = crud.add_workout(
+        db,
+        epc=epc.strip().upper(),
+        workout_date=req.workout_date,
+        distance_m=req.distance_m,
+        surface=req.surface,
+        duration_ms=req.duration_ms,
+        track_condition=req.track_condition,
+        trainer_name=req.trainer_name,
+        notes=req.notes,
+    )
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.get("/horses/{epc}/workouts")
+def get_workouts(epc: str, db: Session = Depends(get_db)):
+    epc = epc.strip().upper()
+    if not crud.get_horse(db, epc):
+        raise HTTPException(404, f"Horse '{epc}' not found")
+    records = crud.get_workouts(db, epc)
+    return {
+        "epc": epc,
+        "workouts": [
+            {
+                "id": r.id,
+                "workout_date": r.workout_date,
+                "distance_m": r.distance_m,
+                "surface": r.surface,
+                "duration_ms": r.duration_ms,
+                "track_condition": r.track_condition,
+                "trainer_name": r.trainer_name,
+                "notes": r.notes,
+            }
+            for r in records
+        ],
+    }
+
+
+@router.post("/horses/{epc}/checkins")
+def add_checkin(epc: str, req: CheckInRequest, db: Session = Depends(get_db)):
+    result = crud.add_checkin(
+        db,
+        epc=epc.strip().upper(),
+        scanned_by=req.scanned_by,
+        location=req.location,
+        race_id=req.race_id,
+        notes=req.notes,
+    )
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.get("/horses/{epc}/checkins")
+def get_checkins(epc: str, race_id: Optional[int] = None, db: Session = Depends(get_db)):
+    epc = epc.strip().upper()
+    if not crud.get_horse(db, epc):
+        raise HTTPException(404, f"Horse '{epc}' not found")
+    records = crud.get_checkins(db, epc, race_id=race_id)
+    return {
+        "epc": epc,
+        "checkins": [
+            {
+                "id": r.id,
+                "race_id": r.race_id,
+                "scanned_at": r.scanned_at.isoformat() if r.scanned_at else None,
+                "scanned_by": r.scanned_by,
+                "location": r.location,
+                "verified": r.verified,
+                "notes": r.notes,
+            }
+            for r in records
+        ],
+    }
+
+
+@router.post("/horses/{epc}/testbarn/checkin")
+def test_barn_checkin(epc: str, req: TestBarnCheckInRequest, db: Session = Depends(get_db)):
+    result = crud.test_barn_checkin(
+        db,
+        epc=epc.strip().upper(),
+        checkin_by=req.checkin_by,
+        race_id=req.race_id,
+        sample_id=req.sample_id,
+        notes=req.notes,
+    )
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.post("/testbarn/{record_id}/checkout")
+def test_barn_checkout(record_id: int, req: TestBarnCheckOutRequest, db: Session = Depends(get_db)):
+    result = crud.test_barn_checkout(
+        db,
+        record_id=record_id,
+        checkout_by=req.checkout_by,
+        result=req.result,
+        notes=req.notes,
+    )
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.get("/horses/{epc}/testbarn")
+def get_test_barn_records(epc: str, db: Session = Depends(get_db)):
+    epc = epc.strip().upper()
+    if not crud.get_horse(db, epc):
+        raise HTTPException(404, f"Horse '{epc}' not found")
+    records = crud.get_test_barn_records(db, epc)
+    return {
+        "epc": epc,
+        "test_barn_records": [
+            {
+                "id": r.id,
+                "race_id": r.race_id,
+                "checkin_at": r.checkin_at.isoformat() if r.checkin_at else None,
+                "checkin_by": r.checkin_by,
+                "checkout_at": r.checkout_at.isoformat() if r.checkout_at else None,
+                "checkout_by": r.checkout_by,
+                "sample_id": r.sample_id,
+                "result": r.result,
+                "notes": r.notes,
+            }
+            for r in records
+        ],
+    }

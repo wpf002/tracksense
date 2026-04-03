@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from sqlalchemy import (
-    Boolean, DateTime, Float, ForeignKey, Integer, String,
+    Boolean, DateTime, Float, ForeignKey, Integer, String, Text,
     UniqueConstraint, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -26,6 +26,9 @@ class Horse(Base):
     race_entries: Mapped[list["RaceEntry"]] = relationship("RaceEntry", back_populates="horse")
     gate_reads: Mapped[list["GateRead"]] = relationship("GateRead", back_populates="horse")
     race_results: Mapped[list["RaceResult"]] = relationship("RaceResult", back_populates="horse")
+    workouts: Mapped[list["WorkoutRecord"]] = relationship("WorkoutRecord", back_populates="horse", cascade="all, delete-orphan")
+    checkins: Mapped[list["CheckInRecord"]] = relationship("CheckInRecord", back_populates="horse", cascade="all, delete-orphan")
+    test_barn_records: Mapped[list["TestBarnRecord"]] = relationship("TestBarnRecord", back_populates="horse", cascade="all, delete-orphan")
 
 
 class Owner(Base):
@@ -155,3 +158,52 @@ class VetRecord(Base):
     vet_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     horse: Mapped["Horse"] = relationship("Horse", back_populates="vet_records")
+
+
+class WorkoutRecord(Base):
+    __tablename__ = "workout_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
+    workout_date: Mapped[str] = mapped_column(String(10), nullable=False)          # YYYY-MM-DD
+    distance_m: Mapped[float] = mapped_column(Float, nullable=False)
+    surface: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)      # Dirt | Turf | Synthetic
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)     # workout time in ms
+    track_condition: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # Fast | Good | Soft | Heavy
+    trainer_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    horse: Mapped["Horse"] = relationship("Horse", back_populates="workouts")
+
+
+class CheckInRecord(Base):
+    __tablename__ = "checkin_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
+    race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True, index=True)
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    scanned_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    location: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    horse: Mapped["Horse"] = relationship("Horse", back_populates="checkins")
+
+
+class TestBarnRecord(Base):
+    __tablename__ = "test_barn_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
+    race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True)
+    checkin_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    checkin_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    checkout_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # None = still in barn
+    checkout_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    sample_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    result: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)       # Pending | Clear | Positive | Void
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    horse: Mapped["Horse"] = relationship("Horse", back_populates="test_barn_records")

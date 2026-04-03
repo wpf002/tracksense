@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     Horse, Owner, Trainer, VenueRecord, GateRecord,
     Race, RaceEntry, GateRead, RaceResult, VetRecord,
+    WorkoutRecord, CheckInRecord, TestBarnRecord,
 )
 
 
@@ -441,5 +442,129 @@ def get_vet_records(db: Session, epc: str) -> list[VetRecord]:
         db.query(VetRecord)
         .filter_by(horse_epc=epc)
         .order_by(VetRecord.event_date.desc())
+        .all()
+    )
+
+
+# ------------------------------------------------------------------ #
+# Workout records
+# ------------------------------------------------------------------ #
+
+def add_workout(
+    db: Session,
+    epc: str,
+    workout_date: str,
+    distance_m: float,
+    **kwargs,
+) -> dict:
+    if not db.get(Horse, epc):
+        return {"ok": False, "error": f"Horse '{epc}' not found"}
+    record = WorkoutRecord(
+        horse_epc=epc,
+        workout_date=workout_date,
+        distance_m=distance_m,
+        **kwargs,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {"ok": True, "id": record.id}
+
+
+def get_workouts(db: Session, epc: str) -> list[WorkoutRecord]:
+    return (
+        db.query(WorkoutRecord)
+        .filter_by(horse_epc=epc)
+        .order_by(WorkoutRecord.workout_date.desc())
+        .all()
+    )
+
+
+# ------------------------------------------------------------------ #
+# Check-in records
+# ------------------------------------------------------------------ #
+
+def add_checkin(
+    db: Session,
+    epc: str,
+    scanned_by: Optional[str] = None,
+    location: Optional[str] = None,
+    race_id: Optional[int] = None,
+    **kwargs,
+) -> dict:
+    if not db.get(Horse, epc):
+        return {"ok": False, "error": f"Horse '{epc}' not found"}
+    record = CheckInRecord(
+        horse_epc=epc,
+        scanned_by=scanned_by,
+        location=location,
+        race_id=race_id,
+        **kwargs,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {"ok": True, "id": record.id}
+
+
+def get_checkins(
+    db: Session,
+    epc: str,
+    race_id: Optional[int] = None,
+) -> list[CheckInRecord]:
+    q = db.query(CheckInRecord).filter_by(horse_epc=epc)
+    if race_id is not None:
+        q = q.filter_by(race_id=race_id)
+    return q.order_by(CheckInRecord.scanned_at.desc()).all()
+
+
+# ------------------------------------------------------------------ #
+# Test barn records
+# ------------------------------------------------------------------ #
+
+def test_barn_checkin(
+    db: Session,
+    epc: str,
+    checkin_by: Optional[str] = None,
+    race_id: Optional[int] = None,
+    **kwargs,
+) -> dict:
+    if not db.get(Horse, epc):
+        return {"ok": False, "error": f"Horse '{epc}' not found"}
+    record = TestBarnRecord(
+        horse_epc=epc,
+        checkin_by=checkin_by,
+        race_id=race_id,
+        **kwargs,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {"ok": True, "id": record.id}
+
+
+def test_barn_checkout(
+    db: Session,
+    record_id: int,
+    checkout_by: Optional[str] = None,
+    result: str = "Clear",
+    **kwargs,
+) -> dict:
+    record = db.get(TestBarnRecord, record_id)
+    if not record:
+        return {"ok": False, "error": f"Test barn record {record_id} not found"}
+    record.checkout_by = checkout_by
+    record.result = result
+    for k, v in kwargs.items():
+        setattr(record, k, v)
+    db.commit()
+    return {"ok": True, "id": record.id}
+
+
+def get_test_barn_records(db: Session, epc: str) -> list[TestBarnRecord]:
+    return (
+        db.query(TestBarnRecord)
+        .filter_by(horse_epc=epc)
+        .order_by(TestBarnRecord.checkin_at.desc())
         .all()
     )
