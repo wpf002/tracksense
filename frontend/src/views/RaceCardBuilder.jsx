@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listVenues, createVenue, getVenue, addGate } from '../api/venues'
-import { getHorse } from '../api/horses'
+import { getHorse, listHorses } from '../api/horses'
 import { registerHorses } from '../api/races'
 
 // ──────────────────────────────────────────────
@@ -309,6 +309,35 @@ function StepField({ field, setField }) {
   const [lookupLoading, setLookupLoading] = useState(false)
   const [addError, setAddError] = useState(null)
 
+  const { data: allHorses, isLoading: horsesLoading } = useQuery({
+    queryKey: ['horses'],
+    queryFn: listHorses,
+  })
+
+  // Auto-populate from DB when the field is empty and horses have loaded
+  useEffect(() => {
+    if (field.length === 0 && allHorses && allHorses.length > 0) {
+      setField(
+        allHorses.map((h, i) => ({
+          horse_id: h.epc,
+          display_name: h.name,
+          saddle_cloth: String(i + 1),
+        }))
+      )
+    }
+  }, [allHorses]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleReload = () => {
+    if (!allHorses) return
+    setField(
+      allHorses.map((h, i) => ({
+        horse_id: h.epc,
+        display_name: h.name,
+        saddle_cloth: String(i + 1),
+      }))
+    )
+  }
+
   const handleEpcBlur = async () => {
     const epc = epcInput.trim().toUpperCase()
     if (!epc) return
@@ -348,6 +377,19 @@ function StepField({ field, setField }) {
 
   return (
     <div className="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs text-text-muted font-timing uppercase tracking-widest">
+          {horsesLoading ? 'Loading horses…' : `${field.length} runner${field.length !== 1 ? 's' : ''}`}
+        </span>
+        <button
+          onClick={handleReload}
+          disabled={horsesLoading || !allHorses}
+          className="text-xs text-text-muted hover:text-accent font-timing uppercase tracking-widest disabled:opacity-40"
+        >
+          ↺ Reload All from Registry
+        </button>
+      </div>
+
       {field.length > 0 && (
         <table className="w-full text-sm border-collapse mb-4">
           <thead>
