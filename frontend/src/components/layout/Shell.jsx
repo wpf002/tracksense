@@ -1,11 +1,22 @@
-import { Outlet } from 'react-router-dom'
+import { useNavigate, Outlet } from 'react-router-dom'
 import NavLink from './NavLink'
 import useRaceStore from '../../store/raceStore'
 import LiveDot from '../ui/LiveDot'
 
 export default function Shell() {
+  const navigate = useNavigate()
   const status = useRaceStore((s) => s.status)
   const connected = useRaceStore((s) => s.connected)
+
+  const username = localStorage.getItem('ts_username') ?? ''
+  const role = localStorage.getItem('ts_role') ?? ''
+
+  function handleLogout() {
+    localStorage.removeItem('ts_token')
+    localStorage.removeItem('ts_role')
+    localStorage.removeItem('ts_username')
+    navigate('/login', { replace: true })
+  }
 
   return (
     <div className="flex h-full min-h-screen bg-bg">
@@ -47,6 +58,26 @@ export default function Shell() {
               {connected ? 'WS CONNECTED' : 'WS OFFLINE'}
             </span>
           </div>
+        </div>
+
+        {/* User info + logout */}
+        <div className="px-4 py-3 border-t border-border">
+          <p className="text-xs text-text-primary font-timing truncate">{username}</p>
+          <span
+            className={`text-xs font-timing font-bold uppercase tracking-wide px-1 py-0.5 border ${
+              role === 'admin'
+                ? 'border-amber-700 text-amber-400'
+                : 'border-border text-text-muted'
+            }`}
+          >
+            {role || 'viewer'}
+          </span>
+          <button
+            onClick={handleLogout}
+            className="mt-2 w-full text-xs font-timing tracking-widest uppercase text-text-muted border border-border py-1 hover:border-red-700 hover:text-red-400 transition-colors"
+          >
+            Logout
+          </button>
         </div>
       </aside>
 

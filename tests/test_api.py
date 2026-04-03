@@ -14,6 +14,22 @@ from fastapi.testclient import TestClient
 from app.server import app
 from app.gate_registry import registry
 from app.race_tracker import set_tracker
+from app.routes import get_current_user
+from app.models import User
+
+# ------------------------------------------------------------------ #
+# Auth bypass — override get_current_user for all API tests
+# ------------------------------------------------------------------ #
+
+_mock_admin = User()
+_mock_admin.id = 1
+_mock_admin.username = "test_admin"
+_mock_admin.hashed_password = "x"
+_mock_admin.role = "admin"
+_mock_admin.full_name = "Test Admin"
+_mock_admin.active = True
+
+app.dependency_overrides[get_current_user] = lambda: _mock_admin
 
 client = TestClient(app, raise_server_exceptions=True)
 

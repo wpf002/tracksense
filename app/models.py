@@ -207,3 +207,16 @@ class TestBarnRecord(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     horse: Mapped["Horse"] = relationship("Horse", back_populates="test_barn_records")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String, nullable=False)
+    role: Mapped[str] = mapped_column(String, nullable=False, default="viewer")
+    # roles: admin | steward | trainer | vet | viewer
+    full_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

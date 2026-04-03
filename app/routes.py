@@ -5,6 +5,7 @@ import threading
 import time
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -17,8 +18,33 @@ from app.race_tracker import (
 from app.websocket_manager import ws_manager
 from app.database import get_db
 from app import crud
+from app.auth import create_access_token, decode_token
+from app.models import User
 
 router = APIRouter()
+
+# ------------------------------------------------------------------ #
+# Auth dependency
+# ------------------------------------------------------------------ #
+
+_security = HTTPBearer()
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(_security),
+    db: Session = Depends(get_db),
+) -> User:
+    token = credentials.credentials
+    payload = decode_token(token)
+    if payload is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+    user = crud.get_user_by_username(db, username)
+    if not user or not user.active:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+    return user
 
 
 # ------------------------------------------------------------------ #
@@ -69,11 +95,68 @@ def health():
 
 
 # ------------------------------------------------------------------ #
+# Auth request models
+# ------------------------------------------------------------------ #
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "viewer"
+    full_name: Optional[str] = None
+
+
+# ------------------------------------------------------------------ #
+# Auth endpoints
+# ------------------------------------------------------------------ #
+
+@router.post("/auth/login")
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = crud.authenticate_user(db, req.username, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = create_access_token({"sub": user.username})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user.role,
+        "username": user.username,
+    }
+
+
+@router.get("/auth/me")
+def get_me(current_user: User = Depends(get_current_user)):
+    return {
+        "username": current_user.username,
+        "role": current_user.role,
+        "full_name": current_user.full_name,
+    }
+
+
+@router.post("/auth/register")
+def register_user(
+    req: CreateUserRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+    if crud.get_user_by_username(db, req.username):
+        raise HTTPException(status_code=409, detail=f"Username '{req.username}' already exists")
+    user = crud.create_user(db, req.username, req.password, req.role, req.full_name)
+    return {"ok": True, "username": user.username}
+
+
+# ------------------------------------------------------------------ #
 # Venue management
 # ------------------------------------------------------------------ #
 
 @router.post("/venues")
-def create_venue(req: CreateVenueRequest):
+def create_venue(req: CreateVenueRequest, _: User = Depends(get_current_user)):
     result = registry.create_venue(
         venue_id=req.venue_id.strip().upper(),
         name=req.name,
@@ -106,7 +189,7 @@ def get_venue(venue_id: str):
 
 
 @router.delete("/venues/{venue_id}")
-def delete_venue(venue_id: str):
+def delete_venue(venue_id: str, _: User = Depends(get_current_user)):
     result = registry.delete_venue(venue_id.upper())
     if not result["ok"]:
         raise HTTPException(404, result["error"])
@@ -114,7 +197,7 @@ def delete_venue(venue_id: str):
 
 
 @router.post("/venues/{venue_id}/gates")
-def add_gate(venue_id: str, req: AddGateRequest):
+def add_gate(venue_id: str, req: AddGateRequest, _: User = Depends(get_current_user)):
     result = registry.add_gate(
         venue_id=venue_id.upper(),
         reader_id=req.reader_id.strip().upper(),
@@ -128,7 +211,7 @@ def add_gate(venue_id: str, req: AddGateRequest):
 
 
 @router.delete("/venues/{venue_id}/gates/{reader_id}")
-def remove_gate(venue_id: str, reader_id: str):
+def remove_gate(venue_id: str, reader_id: str, _: User = Depends(get_current_user)):
     result = registry.remove_gate(venue_id.upper(), reader_id.upper())
     if not result["ok"]:
         raise HTTPException(404, result["error"])
@@ -140,7 +223,7 @@ def remove_gate(venue_id: str, reader_id: str):
 # ------------------------------------------------------------------ #
 
 @router.post("/race/register")
-def register_horses(req: RegisterRequest):
+def register_horses(req: RegisterRequest, _: User = Depends(get_current_user)):
     if not req.horses:
         raise HTTPException(400, "Must provide at least one horse")
 
@@ -174,7 +257,7 @@ def register_horses(req: RegisterRequest):
 
 
 @router.post("/race/arm")
-def arm_race():
+def arm_race(_: User = Depends(get_current_user)):
     t = get_tracker()
     if not t:
         raise HTTPException(400, "No race registered. POST /race/register first.")
@@ -185,13 +268,13 @@ def arm_race():
 
 
 @router.post("/race/reset")
-def reset_race():
+def reset_race(_: User = Depends(get_current_user)):
     set_tracker(None)
     return {"ok": True, "reset": True}
 
 
 @router.post("/race/simulate")
-def simulate_race():
+def simulate_race(_: User = Depends(get_current_user)):
     """
     Arm the registered race and run a mock simulation using the registered
     field and venue gates. Horses are assigned speed profiles randomly and
@@ -282,7 +365,7 @@ def simulate_race():
 
 
 @router.post("/race/simulate/pause")
-def pause_simulation():
+def pause_simulation(_: User = Depends(get_current_user)):
     t = get_tracker()
     if not t:
         raise HTTPException(400, "No active race.")
@@ -293,7 +376,7 @@ def pause_simulation():
 
 
 @router.post("/race/simulate/resume")
-def resume_simulation():
+def resume_simulation(_: User = Depends(get_current_user)):
     t = get_tracker()
     if not t:
         raise HTTPException(400, "No active race.")
@@ -308,7 +391,7 @@ def resume_simulation():
 # ------------------------------------------------------------------ #
 
 @router.post("/tags/submit")
-def submit_tag(req: TagSubmitRequest):
+def submit_tag(req: TagSubmitRequest, _: User = Depends(get_current_user)):
     t = get_tracker()
     if not t:
         return {"ok": False, "reason": "no_active_race"}
@@ -459,7 +542,7 @@ class TestBarnCheckOutRequest(BaseModel):
 # ------------------------------------------------------------------ #
 
 @router.post("/horses")
-def create_horse(req: CreateHorseRequest, db: Session = Depends(get_db)):
+def create_horse(req: CreateHorseRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     result = crud.create_horse(
         db,
         epc=req.epc.strip().upper(),
@@ -575,7 +658,7 @@ def get_vet_records(epc: str, db: Session = Depends(get_db)):
 
 
 @router.post("/horses/{epc}/vet")
-def add_vet_record(epc: str, req: AddVetRecordRequest, db: Session = Depends(get_db)):
+def add_vet_record(epc: str, req: AddVetRecordRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     result = crud.add_vet_record(
         db,
         epc=epc.strip().upper(),
@@ -594,7 +677,7 @@ def add_vet_record(epc: str, req: AddVetRecordRequest, db: Session = Depends(get
 # ------------------------------------------------------------------ #
 
 @router.post("/races")
-def create_race(req: CreateRaceRequest, db: Session = Depends(get_db)):
+def create_race(req: CreateRaceRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     try:
         race_date = datetime.fromisoformat(req.race_date)
     except ValueError:
@@ -659,7 +742,7 @@ def get_race(race_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/races/{race_id}/persist")
-def persist_race(race_id: int, db: Session = Depends(get_db)):
+def persist_race(race_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     """
     Persist the active in-memory tracker's results to the database race record.
     The race record must already exist (created via POST /races).
@@ -681,7 +764,7 @@ def persist_race(race_id: int, db: Session = Depends(get_db)):
 # ------------------------------------------------------------------ #
 
 @router.post("/horses/{epc}/workouts")
-def add_workout(epc: str, req: AddWorkoutRequest, db: Session = Depends(get_db)):
+def add_workout(epc: str, req: AddWorkoutRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     result = crud.add_workout(
         db,
         epc=epc.strip().upper(),
@@ -723,7 +806,7 @@ def get_workouts(epc: str, db: Session = Depends(get_db)):
 
 
 @router.post("/horses/{epc}/checkins")
-def add_checkin(epc: str, req: CheckInRequest, db: Session = Depends(get_db)):
+def add_checkin(epc: str, req: CheckInRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     result = crud.add_checkin(
         db,
         epc=epc.strip().upper(),
@@ -761,7 +844,7 @@ def get_checkins(epc: str, race_id: Optional[int] = None, db: Session = Depends(
 
 
 @router.post("/horses/{epc}/testbarn/checkin")
-def test_barn_checkin(epc: str, req: TestBarnCheckInRequest, db: Session = Depends(get_db)):
+def test_barn_checkin(epc: str, req: TestBarnCheckInRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     result = crud.test_barn_checkin(
         db,
         epc=epc.strip().upper(),
@@ -776,7 +859,7 @@ def test_barn_checkin(epc: str, req: TestBarnCheckInRequest, db: Session = Depen
 
 
 @router.post("/testbarn/{record_id}/checkout")
-def test_barn_checkout(record_id: int, req: TestBarnCheckOutRequest, db: Session = Depends(get_db)):
+def test_barn_checkout(record_id: int, req: TestBarnCheckOutRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     result = crud.test_barn_checkout(
         db,
         record_id=record_id,

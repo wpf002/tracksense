@@ -22,6 +22,22 @@ async def lifespan(app: FastAPI):
 
     try:
         from app.database import SessionLocal
+        from app.models import User
+        from app import crud
+
+        db = SessionLocal()
+        try:
+            if db.query(User).count() == 0:
+                crud.create_user(db, "admin", "tracksense", "admin", "TrackSense Admin")
+                print("[startup] Default admin created: admin / tracksense")
+                print("[startup] CHANGE THIS PASSWORD before production use.")
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Admin user creation skipped — %s", exc)
+
+    try:
+        from app.database import SessionLocal
         from app.models import GateRecord, VenueRecord
         from app.gate_registry import registry
 

@@ -18,8 +18,9 @@ from sqlalchemy.orm import Session
 from app.models import (
     Horse, Owner, Trainer, VenueRecord, GateRecord,
     Race, RaceEntry, GateRead, RaceResult, VetRecord,
-    WorkoutRecord, CheckInRecord, TestBarnRecord,
+    WorkoutRecord, CheckInRecord, TestBarnRecord, User,
 )
+from app.auth import hash_password, verify_password
 
 
 # ------------------------------------------------------------------ #
@@ -568,3 +569,39 @@ def get_test_barn_records(db: Session, epc: str) -> list[TestBarnRecord]:
         .order_by(TestBarnRecord.checkin_at.desc())
         .all()
     )
+
+
+# ------------------------------------------------------------------ #
+# User management
+# ------------------------------------------------------------------ #
+
+def get_user_by_username(db: Session, username: str) -> Optional[User]:
+    return db.query(User).filter_by(username=username).first()
+
+
+def create_user(
+    db: Session,
+    username: str,
+    password: str,
+    role: str,
+    full_name: Optional[str] = None,
+) -> User:
+    user = User(
+        username=username,
+        hashed_password=hash_password(password),
+        role=role,
+        full_name=full_name,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def authenticate_user(db: Session, username: str, password: str):
+    user = get_user_by_username(db, username)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user

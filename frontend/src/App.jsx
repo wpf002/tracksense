@@ -5,6 +5,7 @@ import LiveRace from './views/LiveRace'
 import RaceResults from './views/RaceResults'
 import HorseProfile from './views/HorseProfile'
 import RaceCardBuilder from './views/RaceCardBuilder'
+import Login from './views/Login'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -15,12 +16,25 @@ const queryClient = new QueryClient({
   },
 })
 
+function ProtectedRoute({ children }) {
+  const token = localStorage.getItem('ts_token')
+  if (!token) return <Navigate to="/login" replace />
+  return children
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-          <Route element={<Shell />}>
+          <Route path="/login" element={<Login />} />
+          <Route
+            element={
+              <ProtectedRoute>
+                <Shell />
+              </ProtectedRoute>
+            }
+          >
             <Route index element={<Navigate to="/live" replace />} />
             <Route path="/live" element={<LiveRace />} />
             <Route path="/results" element={<RaceResults />} />
