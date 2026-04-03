@@ -7,13 +7,13 @@ NPM     := npm --prefix frontend
 ## Run backend + frontend together (Ctrl-C stops both)
 dev:
 	@trap 'kill 0' SIGINT; \
-	$(UVICORN) app.server:app --reload --port 8000 & \
+	$(UVICORN) app.server:app --reload --port 8001 & \
 	$(NPM) run dev & \
 	wait
 
 ## Run backend only
 backend:
-	$(UVICORN) app.server:app --reload --port 8000
+	$(UVICORN) app.server:app --reload --port 8001
 
 ## Run frontend only
 frontend:

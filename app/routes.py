@@ -60,7 +60,7 @@ def health():
     return {
         "ok": True,
         "service": "tracksense",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "ws_connections": ws_manager.connection_count(),
     }
 
