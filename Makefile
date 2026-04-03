@@ -2,7 +2,12 @@ VENV    := .venv/bin
 UVICORN := $(VENV)/uvicorn
 NPM     := npm --prefix frontend
 
-.PHONY: dev backend frontend install
+# Local dev uses SQLite so no Postgres setup is required.
+# Tables are auto-created on startup (TRACKSENSE_INIT_DB=1).
+export DATABASE_URL       ?= sqlite:///./tracksense.db
+export TRACKSENSE_INIT_DB ?= 1
+
+.PHONY: dev backend frontend install seed
 
 ## Run backend + frontend together (Ctrl-C stops both)
 dev:
@@ -23,3 +28,10 @@ frontend:
 install:
 	$(VENV)/pip install -r requirements.txt
 	$(NPM) install
+
+## Seed the database (skips if already seeded; use seed-force to wipe)
+seed:
+	$(VENV)/python -m scripts.seed
+
+seed-force:
+	$(VENV)/python -m scripts.seed --force
