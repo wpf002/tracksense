@@ -1,6 +1,34 @@
 version: "3.9"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tracksense-postgres
+    environment:
+      POSTGRES_USER: tracksense
+      POSTGRES_PASSWORD: tracksense
+      POSTGRES_DB: tracksense
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracksense"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: tracksense-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   tracksense-backend:
     build:
       context: ..
@@ -9,11 +37,19 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://tracksense:tracksense@postgres:5432/tracksense
+      - REDIS_URL=redis://redis:6379/0
+      - TRACKSENSE_INIT_DB=1
     # For hardware reader access on Linux host:
     # devices:
     #   - /dev/ttyUSB0:/dev/ttyUSB0
-    environment:
-      - PYTHONUNBUFFERED=1
 
   # Uncomment to run mock reader in Docker too
   # mock-reader:
@@ -25,3 +61,6 @@ services:
   #   environment:
   #     - BACKEND_URL=http://tracksense-backend:8000
   #   command: python -m scripts.mock_reader
+
+volumes:
+  postgres_data:
