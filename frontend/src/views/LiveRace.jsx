@@ -44,6 +44,7 @@ export default function LiveRace() {
   const wsRef = useRef(null)
   const reconnectTimer = useRef(null)
   const reconnectDelay = useRef(1000)
+  const clientRaceStartAt = useRef(null)
   const [highlightedHorseId, setHighlightedHorseId] = useState(null)
   const [elapsedMs, setElapsedMs] = useState(null)
   const [elapsedSince, setElapsedSince] = useState(null)
@@ -58,13 +59,16 @@ export default function LiveRace() {
     queryFn: async () => {
       const data = await getRaceStatus()
       setStatus(data.status)
-      if (data.status === 'running') {
+      if (data.status === 'running' && data.elapsed_ms != null) {
+        clientRaceStartAt.current = Date.now() - data.elapsed_ms
         setElapsedMs(data.elapsed_ms)
         setElapsedSince(Date.now())
-      } else if (data.status !== 'running') {
+      } else if (data.status === 'idle') {
+        clientRaceStartAt.current = null
         setElapsedMs(null)
         setElapsedSince(null)
       }
+      // Do NOT reset elapsed on 'armed' — race threads may already be running
       return data
     },
     refetchInterval: 2000,
@@ -97,11 +101,13 @@ export default function LiveRace() {
     return () => clearInterval(interval)
   }, [status, elapsedMs, elapsedSince])
 
-  // Compute displayed elapsed (server value + client-side drift)
-  const displayedElapsed =
-    status === 'running' && elapsedMs != null && elapsedSince != null
-      ? elapsedMs + (Date.now() - elapsedSince)
-      : elapsedMs
+  // Compute displayed elapsed — ref-based so it's immune to React batching
+  // and doesn't reset when status briefly passes through 'armed'.
+  const displayedElapsed = clientRaceStartAt.current != null
+    ? Date.now() - clientRaceStartAt.current
+    : (elapsedMs != null && elapsedSince != null
+        ? elapsedMs + (Date.now() - elapsedSince)
+        : elapsedMs)
 
   // Force re-render every 100ms when running
   const [, setTick] = useState(0)
@@ -131,16 +137,15 @@ export default function LiveRace() {
           setLastEvent(data)
           setHighlightedHorseId(data.tag_id)
           setTimeout(() => setHighlightedHorseId(null), 2000)
-          // Immediately sync race clock so the 100ms animation ticker starts
-          // without waiting up to 2s for the status poller to fire.
           if (!data.race_finished) {
             setStatus('running')
-            if (data.elapsed_ms != null) {
-              setElapsedMs(data.elapsed_ms)
-              setElapsedSince(Date.now())
+            // Anchor the client clock once from the first gate event so all
+            // horses animate from t=0 rather than jumping to this event's time.
+            if (clientRaceStartAt.current == null && data.elapsed_ms != null) {
+              clientRaceStartAt.current = Date.now() - data.elapsed_ms
             }
           }
-          // Refresh state after each event
+          // Refresh horse positions after each event
           qc.invalidateQueries({ queryKey: ['race-state'] })
           if (data.race_finished) {
             setStatus('finished')
@@ -187,6 +192,9 @@ export default function LiveRace() {
     mutationFn: resetRace,
     onSuccess: () => {
       setResetError(null)
+      clientRaceStartAt.current = null
+      setElapsedMs(null)
+      setElapsedSince(null)
       setHorses([])
       setStatus('idle')
       qc.invalidateQueries({ queryKey: ['race-status'] })
@@ -199,6 +207,10 @@ export default function LiveRace() {
     mutationFn: simulateRace,
     onSuccess: () => {
       setSimulateError(null)
+      // Clear the old clock so it re-anchors on the first incoming gate event
+      clientRaceStartAt.current = null
+      setElapsedMs(null)
+      setElapsedSince(null)
       qc.invalidateQueries({ queryKey: ['race-status'] })
     },
     onError: (err) => setSimulateError(err.response?.data?.detail ?? 'Simulate failed'),
