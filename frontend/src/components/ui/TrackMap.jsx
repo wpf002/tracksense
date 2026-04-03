@@ -24,8 +24,9 @@ const _arcTable = (() => {
   const da = (2 * Math.PI) / ARC_STEPS
   for (let i = 1; i <= ARC_STEPS; i++) {
     const mid = (i - 0.5) * da
-    // ds = sqrt((rx·sin(a))² + (ry·cos(a))²) · da  (ellipse arc element)
-    total += Math.sqrt((MID_RX * Math.sin(mid)) ** 2 + (MID_RY * Math.cos(mid)) ** 2) * da
+    // ovalPt draws (cx + rx·cos(a), cy + ry·sin(a)) with a = π/2 - arcAngle,
+    // so the arc element in arcAngle is sqrt((rx·cos)² + (ry·sin)²), not sin/cos.
+    total += Math.sqrt((MID_RX * Math.cos(mid)) ** 2 + (MID_RY * Math.sin(mid)) ** 2) * da
     table.push({ angle: i * da, arc: total })
   }
   return { table, total }
