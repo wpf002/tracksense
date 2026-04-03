@@ -18,6 +18,9 @@ export const armRace = () =>
 export const resetRace = () =>
   client.post('/race/reset').then((r) => r.data)
 
+export const simulateRace = () =>
+  client.post('/race/simulate').then((r) => r.data)
+
 export const listRaces = () =>
   client.get('/races').then((r) => r.data.races)
 

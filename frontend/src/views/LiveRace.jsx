@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useRaceStore from '../store/raceStore'
-import { getRaceStatus, getRaceState, armRace, resetRace } from '../api/races'
+import { getRaceStatus, getRaceState, armRace, resetRace, simulateRace } from '../api/races'
 import DataTable from '../components/ui/DataTable'
 import TimingDisplay, { formatMs } from '../components/ui/TimingDisplay'
 import StatBadge from '../components/ui/StatBadge'
@@ -47,6 +47,7 @@ export default function LiveRace() {
   const [elapsedSince, setElapsedSince] = useState(null)
   const [armError, setArmError] = useState(null)
   const [resetError, setResetError] = useState(null)
+  const [simulateError, setSimulateError] = useState(null)
 
   // Poll /race/status every 2s
   useQuery({
@@ -175,6 +176,15 @@ export default function LiveRace() {
     onError: (err) => setResetError(err.response?.data?.detail ?? 'Reset failed'),
   })
 
+  const simulateMutation = useMutation({
+    mutationFn: simulateRace,
+    onSuccess: () => {
+      setSimulateError(null)
+      qc.invalidateQueries({ queryKey: ['race-status'] })
+    },
+    onError: (err) => setSimulateError(err.response?.data?.detail ?? 'Simulate failed'),
+  })
+
   // Sort horses: finished first (by position), then by gates_passed desc
   const sortedHorses = [...horses].sort((a, b) => {
     if (a.finish_position != null && b.finish_position != null)
@@ -266,6 +276,13 @@ export default function LiveRace() {
             </Link>
           )}
           <button
+            onClick={() => simulateMutation.mutate()}
+            disabled={simulateMutation.isPending || status === 'running' || status === 'finished'}
+            className="px-4 py-1.5 text-sm font-semibold tracking-widest uppercase border border-green-700 text-green-400 hover:bg-green-950 transition-colors disabled:opacity-40"
+          >
+            {simulateMutation.isPending ? 'Starting…' : 'SIMULATE'}
+          </button>
+          <button
             onClick={() => armMutation.mutate()}
             disabled={armMutation.isPending}
             className="px-4 py-1.5 text-sm font-semibold tracking-widest uppercase border border-yellow-700 text-yellow-400 hover:bg-yellow-950 transition-colors disabled:opacity-40"
@@ -283,6 +300,9 @@ export default function LiveRace() {
       </div>
 
       {/* Errors */}
+      {simulateError && (
+        <p className="text-red-400 text-xs mb-3 font-timing">{simulateError}</p>
+      )}
       {armError && (
         <p className="text-red-400 text-xs mb-3 font-timing">{armError}</p>
       )}

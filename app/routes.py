@@ -1,5 +1,8 @@
 
 import asyncio
+import random
+import threading
+import time
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -185,6 +188,81 @@ def arm_race():
 def reset_race():
     set_tracker(None)
     return {"ok": True, "reset": True}
+
+
+@router.post("/race/simulate")
+def simulate_race():
+    """
+    Arm the registered race and run a mock simulation using the registered
+    field and venue gates. Horses are assigned speed profiles randomly and
+    driven through each gate with realistic timing in background threads.
+    """
+    t = get_tracker()
+    if not t:
+        raise HTTPException(400, "No race registered. Use Race Builder first.")
+    if t.status not in ("idle", "armed"):
+        raise HTTPException(400, f"Cannot simulate in '{t.status}' state. Reset first.")
+
+    arm_result = t.arm()
+    if not arm_result["ok"]:
+        raise HTTPException(400, arm_result["error"])
+
+    venue = registry.get_venue(t.venue_id)
+    if not venue:
+        raise HTTPException(400, f"Venue '{t.venue_id}' not found in registry.")
+
+    gates = sorted(venue.gates.values(), key=lambda g: g.distance_m)
+    if not gates:
+        raise HTTPException(400, "Venue has no gates configured.")
+
+    horses = list(t.registered_horses.values())
+
+    # Speed profiles: multipliers per gate segment
+    profiles = {
+        "pacer":    [0.92, 0.96, 1.02, 1.08, 1.12],
+        "closer":   [1.10, 1.05, 1.00, 0.95, 0.88],
+        "midfield": [1.00, 1.00, 1.00, 1.00, 1.00],
+    }
+
+    # Base time per segment scales with distance; ~16s per 400m at race speed
+    def segment_times(horse_index: int) -> list[float]:
+        profile_name = random.choice(list(profiles.keys()))
+        mults = profiles[profile_name]
+        ability = random.uniform(0.95, 1.05)
+        times = [0.0]
+        cumulative = 0.0
+        for i in range(len(gates) - 1):
+            dist = gates[i + 1].distance_m - gates[i].distance_m
+            base = dist / 25.0  # ~25 m/s ≈ 90 km/h
+            mult = mults[i % len(mults)]
+            seg = base * mult * ability + random.uniform(-0.3, 0.3)
+            cumulative += max(seg, 0.5)
+            times.append(cumulative)
+        return times
+
+    def run_horse(horse, times: list[float], race_start: float):
+        for i, gate in enumerate(gates):
+            target = race_start + times[i]
+            wait = target - time.time()
+            if wait > 0:
+                time.sleep(wait)
+            t.submit_tag(horse.horse_id, gate.reader_id)
+            # Simulate 1–3 duplicate reads in the transit window
+            for _ in range(random.randint(1, 3)):
+                time.sleep(random.uniform(0.001, 0.008))
+                t.submit_tag(horse.horse_id, gate.reader_id)
+
+    race_start = time.time() + 0.1  # small buffer so all threads are ready
+    threads = []
+    for idx, horse in enumerate(horses):
+        times = segment_times(idx)
+        th = threading.Thread(target=run_horse, args=(horse, times, race_start), daemon=True)
+        threads.append(th)
+
+    for th in threads:
+        th.start()
+
+    return {"ok": True, "simulating": True, "runners": len(horses), "gates": len(gates)}
 
 
 # ------------------------------------------------------------------ #
