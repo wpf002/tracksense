@@ -8,15 +8,46 @@ const SILK_COLORS = [
 
 const W = 800, H = 310
 const cx = W / 2, cy = H / 2
-// Balanced oval — ~2.5:1 ratio gives natural racetrack curves
 const OUTER_RX = 300, OUTER_RY = 118
 const TRACK_W = 26
 const INNER_RX = OUTER_RX - TRACK_W, INNER_RY = OUTER_RY - TRACK_W
 const MID_RX   = OUTER_RX - TRACK_W / 2, MID_RY = OUTER_RY - TRACK_W / 2
 
-// Point on oval. progress=0 → bottom, clockwise.
+// ─── Arc-length parameterization ─────────────────────────────────────────────
+// Precompute once at module load. Maps progress (0–1) to an angle on the oval
+// so that equal progress increments equal equal arc-length increments — giving
+// evenly-spaced gate markers even on a non-circular ellipse.
+const ARC_STEPS = 720
+const _arcTable = (() => {
+  const table = [{ angle: 0, arc: 0 }]
+  let total = 0
+  const da = (2 * Math.PI) / ARC_STEPS
+  for (let i = 1; i <= ARC_STEPS; i++) {
+    const mid = (i - 0.5) * da
+    // ds = sqrt((rx·sin(a))² + (ry·cos(a))²) · da  (ellipse arc element)
+    total += Math.sqrt((MID_RX * Math.sin(mid)) ** 2 + (MID_RY * Math.cos(mid)) ** 2) * da
+    table.push({ angle: i * da, arc: total })
+  }
+  return { table, total }
+})()
+
+// Convert progress (0=bottom, clockwise) to the SVG angle used in ovalPt
+function progressToAngle(progress) {
+  const target = (progress % 1) * _arcTable.total
+  let lo = 0, hi = _arcTable.table.length - 1
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1
+    if (_arcTable.table[mid].arc <= target) lo = mid; else hi = mid
+  }
+  const t0 = _arcTable.table[lo], t1 = _arcTable.table[hi]
+  const f = t0.arc === t1.arc ? 0 : (target - t0.arc) / (t1.arc - t0.arc)
+  const arcAngle = t0.angle + f * (t1.angle - t0.angle)
+  return Math.PI / 2 - arcAngle   // clockwise from bottom
+}
+
+// Point on oval at given progress
 function ovalPt(progress, rx, ry) {
-  const a = Math.PI / 2 - progress * 2 * Math.PI
+  const a = progressToAngle(progress)
   return { x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a), a }
 }
 
@@ -28,12 +59,12 @@ function ovalNormal(a, rx, ry) {
   return { nx: nx / mag, ny: ny / mag }
 }
 
-// Interpolate a horse's current distance based on its last known gate event
-// and an estimated speed from its recent sectional, extrapolated to currentElapsedMs.
+// Interpolate a horse's current distance from its gate events + elapsed time
 function interpolateDist(horse, currentElapsedMs, totalDistanceM) {
   const events = horse.events ?? []
+
   if (events.length === 0) {
-    // Race is running but this horse hasn't been read yet — extrapolate from gun
+    // No events yet but race is running — extrapolate from gun at default speed
     return currentElapsedMs > 0
       ? Math.min(0.018 * currentElapsedMs, totalDistanceM)
       : 0
@@ -41,7 +72,7 @@ function interpolateDist(horse, currentElapsedMs, totalDistanceM) {
 
   const last = events[events.length - 1]
 
-  // Finished — freeze at finish line
+  // Finished — freeze at finish
   if (horse.finish_position != null) return last.distance_m
 
   // Estimate speed (m/ms) from last completed segment
@@ -53,7 +84,7 @@ function interpolateDist(horse, currentElapsedMs, totalDistanceM) {
   } else if (last.elapsed_ms > 0) {
     speedMpMs = last.distance_m / last.elapsed_ms
   } else {
-    // At START gate (distance=0, elapsed=0) — use typical early-race speed (~65 km/h)
+    // At START gate (elapsed=0, dist=0) — use default early-race speed (~65 km/h)
     speedMpMs = 0.018
   }
 
@@ -87,7 +118,7 @@ export default function TrackMap({ horses = [], totalDistanceM = 1600, gates = [
       <ellipse cx={cx} cy={cy} rx={INNER_RX} ry={INNER_RY}
                fill="none" stroke="#383838" strokeWidth="1.5" />
 
-      {/* Gate markers */}
+      {/* Gate markers — arc-length positioned so equal distance = equal spacing */}
       {sortedGates.map(gate => {
         const p = gate.distance_m / totalDistanceM
         const outer = ovalPt(p, OUTER_RX + 6, OUTER_RY + 6)
@@ -126,16 +157,15 @@ export default function TrackMap({ horses = [], totalDistanceM = 1600, gates = [
         )
       })()}
 
-      {/* Horses — position interpolated continuously from elapsed time */}
+      {/* Horses */}
       {horses.map((h, idx) => {
         const dist     = interpolateDist(h, currentElapsedMs, totalDistanceM)
         const progress = Math.min(dist / totalDistanceM, 1)
         const { x: bx, y: by, a } = ovalPt(progress, MID_RX, MID_RY)
 
-        // Spread horses across track width using the ellipse outward normal
         const { nx, ny } = ovalNormal(a, MID_RX, MID_RY)
-        const clothNum  = parseInt(h.saddle_cloth ?? String(idx + 1)) || (idx + 1)
-        const laneIdx   = (clothNum - 1) % Math.max(laneCount, 1)
+        const clothNum   = parseInt(h.saddle_cloth ?? String(idx + 1)) || (idx + 1)
+        const laneIdx    = (clothNum - 1) % Math.max(laneCount, 1)
         const laneOffset = laneCount > 1
           ? (laneIdx / (laneCount - 1) - 0.5) * (TRACK_W - 10)
           : 0

@@ -131,6 +131,15 @@ export default function LiveRace() {
           setLastEvent(data)
           setHighlightedHorseId(data.tag_id)
           setTimeout(() => setHighlightedHorseId(null), 2000)
+          // Immediately sync race clock so the 100ms animation ticker starts
+          // without waiting up to 2s for the status poller to fire.
+          if (!data.race_finished) {
+            setStatus('running')
+            if (data.elapsed_ms != null) {
+              setElapsedMs(data.elapsed_ms)
+              setElapsedSince(Date.now())
+            }
+          }
           // Refresh state after each event
           qc.invalidateQueries({ queryKey: ['race-state'] })
           if (data.race_finished) {
