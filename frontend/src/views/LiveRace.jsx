@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useRaceStore from '../store/raceStore'
-import { getRaceStatus, getRaceState, armRace, resetRace, simulateRace } from '../api/races'
+import { getRaceStatus, getRaceState, armRace, resetRace, simulateRace, pauseSimulation, resumeSimulation } from '../api/races'
 import { getVenue } from '../api/venues'
 import DataTable from '../components/ui/DataTable'
 import TimingDisplay, { formatMs } from '../components/ui/TimingDisplay'
@@ -14,6 +14,7 @@ const STATUS_COLORS = {
   idle: 'text-text-muted',
   armed: 'text-yellow-400',
   running: 'text-green-400',
+  paused: 'text-blue-400',
   finished: 'text-accent',
 }
 
@@ -26,6 +27,8 @@ function StatusBadge({ status }) {
           ? 'border-green-700 bg-green-950 text-green-400'
           : status === 'armed'
           ? 'border-yellow-700 bg-yellow-950 text-yellow-400'
+          : status === 'paused'
+          ? 'border-blue-700 bg-blue-950 text-blue-400'
           : status === 'finished'
           ? 'border-amber-700 bg-amber-950 text-accent'
           : 'border-border bg-surface text-text-muted',
@@ -51,6 +54,7 @@ export default function LiveRace() {
   const [armError, setArmError] = useState(null)
   const [resetError, setResetError] = useState(null)
   const [simulateError, setSimulateError] = useState(null)
+  const [pauseError, setPauseError] = useState(null)
   const [venueId, setVenueId] = useState(null)
 
   // Poll /race/status every 2s
@@ -63,6 +67,11 @@ export default function LiveRace() {
         clientRaceStartAt.current = Date.now() - data.elapsed_ms
         setElapsedMs(data.elapsed_ms)
         setElapsedSince(Date.now())
+      } else if (data.status === 'paused') {
+        // Freeze display: null the live anchor, store backend's frozen elapsed
+        clientRaceStartAt.current = null
+        setElapsedMs(data.elapsed_ms)
+        setElapsedSince(null)
       } else if (data.status === 'idle') {
         clientRaceStartAt.current = null
         setElapsedMs(null)
@@ -216,6 +225,32 @@ export default function LiveRace() {
     onError: (err) => setSimulateError(err.response?.data?.detail ?? 'Simulate failed'),
   })
 
+  const pauseMutation = useMutation({
+    mutationFn: pauseSimulation,
+    onSuccess: () => {
+      setPauseError(null)
+      clientRaceStartAt.current = null
+      setElapsedSince(null)
+      setStatus('paused')
+      qc.invalidateQueries({ queryKey: ['race-status'] })
+    },
+    onError: (err) => setPauseError(err.response?.data?.detail ?? 'Pause failed'),
+  })
+
+  const resumeMutation = useMutation({
+    mutationFn: resumeSimulation,
+    onSuccess: () => {
+      setPauseError(null)
+      if (elapsedMs != null) {
+        clientRaceStartAt.current = Date.now() - elapsedMs
+        setElapsedSince(Date.now())
+      }
+      setStatus('running')
+      qc.invalidateQueries({ queryKey: ['race-status'] })
+    },
+    onError: (err) => setPauseError(err.response?.data?.detail ?? 'Resume failed'),
+  })
+
   // Sort horses: finished first (by position), then by gates_passed desc
   const sortedHorses = [...horses].sort((a, b) => {
     if (a.finish_position != null && b.finish_position != null)
@@ -308,11 +343,24 @@ export default function LiveRace() {
           )}
           <button
             onClick={() => simulateMutation.mutate()}
-            disabled={simulateMutation.isPending || status === 'running' || status === 'finished'}
+            disabled={simulateMutation.isPending || status === 'running' || status === 'paused' || status === 'finished'}
             className="px-4 py-1.5 text-sm font-semibold tracking-widest uppercase border border-green-700 text-green-400 hover:bg-green-950 transition-colors disabled:opacity-40"
           >
             {simulateMutation.isPending ? 'Starting…' : 'SIMULATE'}
           </button>
+          {(status === 'running' || status === 'paused') && (
+            <button
+              onClick={() => status === 'paused' ? resumeMutation.mutate() : pauseMutation.mutate()}
+              disabled={pauseMutation.isPending || resumeMutation.isPending}
+              className="px-4 py-1.5 text-sm font-semibold tracking-widest uppercase border border-blue-700 text-blue-400 hover:bg-blue-950 transition-colors disabled:opacity-40"
+            >
+              {pauseMutation.isPending || resumeMutation.isPending
+                ? '…'
+                : status === 'paused'
+                ? 'RESUME'
+                : 'PAUSE'}
+            </button>
+          )}
           <button
             onClick={() => armMutation.mutate()}
             disabled={armMutation.isPending}
@@ -333,6 +381,9 @@ export default function LiveRace() {
       {/* Errors */}
       {simulateError && (
         <p className="text-red-400 text-xs mb-3 font-timing">{simulateError}</p>
+      )}
+      {pauseError && (
+        <p className="text-red-400 text-xs mb-3 font-timing">{pauseError}</p>
       )}
       {armError && (
         <p className="text-red-400 text-xs mb-3 font-timing">{armError}</p>

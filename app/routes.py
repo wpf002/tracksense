@@ -240,12 +240,28 @@ def simulate_race():
             times.append(cumulative)
         return times
 
+    pause_ev = t._sim_pause
+    stop_ev  = t._sim_stop
+
     def run_horse(horse, times: list[float], race_start: float):
         for i, gate in enumerate(gates):
             target = race_start + times[i]
-            wait = target - time.time()
-            if wait > 0:
-                time.sleep(wait)
+
+            # Sleep toward target in 50 ms slices, honouring pause and stop
+            while True:
+                if stop_ev.is_set():
+                    return
+                pause_ev.wait()          # blocks here while paused
+                if stop_ev.is_set():     # re-check after unblocking
+                    return
+                remaining = target - time.time()
+                if remaining <= 0:
+                    break
+                time.sleep(min(0.05, remaining))
+
+            if stop_ev.is_set():
+                return
+
             t.submit_tag(horse.horse_id, gate.reader_id)
             # Simulate 1–3 duplicate reads in the transit window
             for _ in range(random.randint(1, 3)):
@@ -263,6 +279,28 @@ def simulate_race():
         th.start()
 
     return {"ok": True, "simulating": True, "runners": len(horses), "gates": len(gates)}
+
+
+@router.post("/race/simulate/pause")
+def pause_simulation():
+    t = get_tracker()
+    if not t:
+        raise HTTPException(400, "No active race.")
+    result = t.pause()
+    if not result["ok"]:
+        raise HTTPException(400, result["error"])
+    return result
+
+
+@router.post("/race/simulate/resume")
+def resume_simulation():
+    t = get_tracker()
+    if not t:
+        raise HTTPException(400, "No active race.")
+    result = t.resume()
+    if not result["ok"]:
+        raise HTTPException(400, result["error"])
+    return result
 
 
 # ------------------------------------------------------------------ #

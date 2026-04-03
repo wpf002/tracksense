@@ -12,6 +12,7 @@ class RaceStatus(str, Enum):
     IDLE = "idle"
     ARMED = "armed"
     RUNNING = "running"
+    PAUSED = "paused"
     FINISHED = "finished"
 
 
@@ -133,6 +134,12 @@ class RaceTracker:
         self.race_start_wall: Optional[float] = None
         self.race_start_mono: Optional[float] = None
         self.total_expected: int = 0
+        # Simulation pause/stop controls
+        self._sim_pause = threading.Event()
+        self._sim_pause.set()           # set = running, cleared = paused
+        self._sim_stop = threading.Event()
+        self._pause_start_mono: Optional[float] = None   # wall time when current pause began
+        self._total_paused_s: float = 0.0                # accumulated paused seconds
 
     # ------------------------------------------------------------------ #
     # Setup
@@ -162,6 +169,26 @@ class RaceTracker:
             self.total_expected = len(horses)
             self.status = RaceStatus.ARMED
             return {"ok": True, "registered": len(horses), "venue_id": self.venue_id}
+
+    def pause(self) -> dict:
+        with self._lock:
+            if self.status != RaceStatus.RUNNING:
+                return {"ok": False, "error": f"Cannot pause in '{self.status}' state"}
+            self._sim_pause.clear()
+            self._pause_start_mono = time.monotonic()
+            self.status = RaceStatus.PAUSED
+            return {"ok": True, "paused": True}
+
+    def resume(self) -> dict:
+        with self._lock:
+            if self.status != RaceStatus.PAUSED:
+                return {"ok": False, "error": f"Cannot resume in '{self.status}' state"}
+            if self._pause_start_mono is not None:
+                self._total_paused_s += time.monotonic() - self._pause_start_mono
+                self._pause_start_mono = None
+            self.status = RaceStatus.RUNNING
+            self._sim_pause.set()    # unblock waiting threads
+            return {"ok": True, "resumed": True}
 
     def arm(self) -> dict:
         with self._lock:
@@ -338,7 +365,7 @@ class RaceTracker:
 
             elapsed = None
             if self.race_start_mono:
-                elapsed = int((time.monotonic() - self.race_start_mono) * 1000)
+                elapsed = self._compute_elapsed_ms()
 
             return {
                 "status": self.status,
@@ -388,11 +415,20 @@ class RaceTracker:
                 "results": results,
             }
 
+    def _compute_elapsed_ms(self) -> int:
+        """Elapsed race time in ms, paused time subtracted. Call inside lock."""
+        raw_s = time.monotonic() - self.race_start_mono
+        paused_s = self._total_paused_s
+        if self._pause_start_mono is not None:
+            # Currently paused — freeze elapsed at the value it had when we paused
+            paused_s += time.monotonic() - self._pause_start_mono
+        return int((raw_s - paused_s) * 1000)
+
     def get_status(self) -> dict:
         with self._lock:
             elapsed = None
             if self.race_start_mono:
-                elapsed = int((time.monotonic() - self.race_start_mono) * 1000)
+                elapsed = self._compute_elapsed_ms()
             return {
                 "status": self.status,
                 "venue_id": self.venue_id,
@@ -404,7 +440,9 @@ class RaceTracker:
 
     def reset(self) -> dict:
         with self._lock:
-            self._reset()
+            self._sim_stop.set()     # signal threads to exit
+            self._sim_pause.set()    # unblock any paused threads so they see the stop flag
+            self._reset()            # replaces both events with fresh ones
             return {"ok": True, "reset": True}
 
     def is_finished(self) -> bool:

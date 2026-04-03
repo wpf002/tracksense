@@ -32,3 +32,9 @@ export const getRace = (id) =>
 
 export const persistRace = (id) =>
   client.post(`/races/${id}/persist`).then((r) => r.data)
+
+export const pauseSimulation = () =>
+  client.post('/race/simulate/pause').then((r) => r.data)
+
+export const resumeSimulation = () =>
+  client.post('/race/simulate/resume').then((r) => r.data)
