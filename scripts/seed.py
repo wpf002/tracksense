@@ -97,7 +97,6 @@ VENUES = [
             ("GATE-F6",     "Furlong 6", 1207.0, False),
             ("GATE-FINISH", "Finish",    1609.0, True),
         ],
-        # Base segment times in ms (Start→F2, F2→F4, F4→F6, F6→Finish)
         "segments_ms": [5000, 19500, 19500, 20000],
     },
     {
@@ -110,19 +109,73 @@ VENUES = [
             ("GATE-F4",     "Furlong 4", 800.0,  False),
             ("GATE-FINISH", "Finish",    1200.0, True),
         ],
-        # 3 segments
         "segments_ms": [5000, 19000, 19000],
+    },
+    {
+        "venue_id": "RANDWICK",
+        "name": "Royal Randwick Racecourse",
+        "distance": 1200.0,
+        "gates": [
+            ("GATE-START",  "Start",     0.0,    False),
+            ("GATE-F2",     "Furlong 2", 400.0,  False),
+            ("GATE-F4",     "Furlong 4", 800.0,  False),
+            ("GATE-FINISH", "Finish",    1200.0, True),
+        ],
+        "segments_ms": [5000, 19000, 19000],
+    },
+    {
+        "venue_id": "MOONEE_VALLEY",
+        "name": "Moonee Valley Racecourse",
+        "distance": 1600.0,
+        "gates": [
+            ("GATE-START",  "Start",     0.0,    False),
+            ("GATE-F2",     "Furlong 2", 402.0,  False),
+            ("GATE-F4",     "Furlong 4", 804.0,  False),
+            ("GATE-F6",     "Furlong 6", 1207.0, False),
+            ("GATE-FINISH", "Finish",    1600.0, True),
+        ],
+        "segments_ms": [5000, 19500, 19500, 19500],
+    },
+    {
+        "venue_id": "ROSEHILL",
+        "name": "Rosehill Gardens Racecourse",
+        "distance": 1400.0,
+        "gates": [
+            ("GATE-START",  "Start",     0.0,    False),
+            ("GATE-F2",     "Furlong 2", 402.0,  False),
+            ("GATE-F4",     "Furlong 4", 804.0,  False),
+            ("GATE-F6",     "Furlong 6", 1100.0, False),
+            ("GATE-FINISH", "Finish",    1400.0, True),
+        ],
+        "segments_ms": [5000, 19500, 18000, 15000],
+    },
+    {
+        "venue_id": "EAGLE_FARM",
+        "name": "Eagle Farm Racecourse",
+        "distance": 1400.0,
+        "gates": [
+            ("GATE-START",  "Start",     0.0,    False),
+            ("GATE-F2",     "Furlong 2", 402.0,  False),
+            ("GATE-F4",     "Furlong 4", 804.0,  False),
+            ("GATE-F6",     "Furlong 6", 1100.0, False),
+            ("GATE-FINISH", "Finish",    1400.0, True),
+        ],
+        "segments_ms": [5000, 19000, 18000, 15000],
     },
 ]
 
 # (venue_idx, distance_m, race_date, field_indices)
 RACE_SCHEDULE = [
-    (0, 1609.0, "2026-01-10T14:30:00", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
-    (1, 1200.0, "2026-01-24T15:00:00", [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]),
-    (0, 1609.0, "2026-02-07T14:00:00", [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]),
-    (1, 1200.0, "2026-02-21T15:00:00", [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]),
-    (0, 1609.0, "2026-03-07T14:30:00", [0, 1, 2, 3, 4, 5, 9, 10, 14, 15]),
-    (1, 1200.0, "2026-03-28T15:00:00", [6, 7, 8, 11, 12, 13, 16, 17, 18, 19]),
+    (0, 1609.0, "2026-01-10T14:30:00", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),      # FLEMINGTON
+    (1, 1200.0, "2026-01-17T15:00:00", [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]),  # CAULFIELD
+    (2, 1200.0, "2026-01-24T14:00:00", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),      # RANDWICK
+    (3, 1600.0, "2026-01-31T15:00:00", [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]),  # MOONEE_VALLEY
+    (4, 1400.0, "2026-02-07T14:30:00", [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]),  # ROSEHILL
+    (5, 1400.0, "2026-02-14T15:00:00", [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]),  # EAGLE_FARM
+    (0, 1609.0, "2026-02-21T14:00:00", [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]),  # FLEMINGTON
+    (1, 1200.0, "2026-02-28T15:00:00", [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]),  # CAULFIELD
+    (0, 1609.0, "2026-03-07T14:30:00", [0, 1, 2, 3, 4, 5, 9, 10, 14, 15]),   # FLEMINGTON
+    (1, 1200.0, "2026-03-28T15:00:00", [6, 7, 8, 11, 12, 13, 16, 17, 18, 19]), # CAULFIELD
 ]
 
 SPEED_PROFILES = {

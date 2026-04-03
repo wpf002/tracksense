@@ -47,6 +47,9 @@ function interpolateDist(horse, currentElapsedMs, totalDistanceM) {
     if (dt > 0) speedMpMs = (last.distance_m - prev.distance_m) / dt
   } else if (last.elapsed_ms > 0) {
     speedMpMs = last.distance_m / last.elapsed_ms
+  } else {
+    // At START gate (distance=0, elapsed=0) — use typical early-race speed (~65 km/h)
+    speedMpMs = 0.018
   }
 
   if (speedMpMs <= 0) return last.distance_m
