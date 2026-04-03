@@ -211,7 +211,7 @@ def simulate_race():
     if not venue:
         raise HTTPException(400, f"Venue '{t.venue_id}' not found in registry.")
 
-    gates = sorted(venue.gates.values(), key=lambda g: g.distance_m)
+    gates = sorted(venue.gates, key=lambda g: g.distance_m)
     if not gates:
         raise HTTPException(400, "Venue has no gates configured.")
 
