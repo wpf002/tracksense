@@ -110,6 +110,31 @@ class CreateUserRequest(BaseModel):
     full_name: Optional[str] = None
 
 
+class UpdateUserRequest(BaseModel):
+    role: Optional[str] = None
+    full_name: Optional[str] = None
+    active: Optional[bool] = None
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+# ------------------------------------------------------------------ #
+# Auth helpers
+# ------------------------------------------------------------------ #
+
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+    return current_user
+
+
 # ------------------------------------------------------------------ #
 # Auth endpoints
 # ------------------------------------------------------------------ #
@@ -149,6 +174,92 @@ def register_user(
         raise HTTPException(status_code=409, detail=f"Username '{req.username}' already exists")
     user = crud.create_user(db, req.username, req.password, req.role, req.full_name)
     return {"ok": True, "username": user.username}
+
+
+@router.post("/auth/change-password")
+def change_password(
+    req: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    from app.auth import verify_password
+    if not verify_password(req.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    crud.reset_password(db, current_user.id, req.new_password)
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ #
+# Admin — user management
+# ------------------------------------------------------------------ #
+
+@router.get("/admin/users")
+def admin_list_users(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    users = crud.list_users(db)
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "role": u.role,
+            "full_name": u.full_name,
+            "active": u.active,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+        }
+        for u in users
+    ]
+
+
+@router.patch("/admin/users/{user_id}")
+def admin_update_user(
+    user_id: int,
+    req: UpdateUserRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if user_id == current_user.id:
+        if req.role is not None and req.role != current_user.role:
+            raise HTTPException(status_code=400, detail="Cannot change your own role")
+        if req.active is False:
+            raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    user = crud.update_user(db, user_id, **updates)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"ok": True, "username": user.username, "role": user.role, "active": user.active}
+
+
+@router.post("/admin/users/{user_id}/reset-password")
+def admin_reset_password(
+    user_id: int,
+    req: ResetPasswordRequest,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    ok = crud.reset_password(db, user_id, req.new_password)
+    if not ok:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"ok": True}
+
+
+@router.delete("/admin/users/{user_id}")
+def admin_delete_user(
+    user_id: int,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    ok = crud.delete_user(db, user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ #

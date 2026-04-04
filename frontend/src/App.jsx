@@ -6,6 +6,8 @@ import RaceResults from './views/RaceResults'
 import HorseProfile from './views/HorseProfile'
 import RaceCardBuilder from './views/RaceCardBuilder'
 import Login from './views/Login'
+import AdminUsers from './views/AdminUsers'
+import ChangePassword from './views/ChangePassword'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -41,6 +43,8 @@ export default function App() {
             <Route path="/horses" element={<HorseProfile />} />
             <Route path="/horses/:epc" element={<HorseProfile />} />
             <Route path="/builder" element={<RaceCardBuilder />} />
+            <Route path="/admin/users" element={<AdminUsers />} />
+            <Route path="/settings/password" element={<ChangePassword />} />
             <Route path="*" element={<Navigate to="/live" replace />} />
           </Route>
         </Routes>

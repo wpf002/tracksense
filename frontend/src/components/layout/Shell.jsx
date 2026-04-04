@@ -43,6 +43,12 @@ export default function Shell() {
           <NavLink to="/results">Results</NavLink>
           <NavLink to="/horses">Horses</NavLink>
           <NavLink to="/builder">Race Builder</NavLink>
+          <div className="mt-2 border-t border-border pt-2">
+            <NavLink to="/settings/password">Change Password</NavLink>
+            {role === 'admin' && (
+              <NavLink to="/admin/users">User Management</NavLink>
+            )}
+          </div>
         </nav>
 
         {/* WS connection indicator */}

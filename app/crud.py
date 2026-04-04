@@ -600,8 +600,41 @@ def create_user(
 
 def authenticate_user(db: Session, username: str, password: str):
     user = get_user_by_username(db, username)
-    if not user:
+    if not user or not user.active:
         return False
     if not verify_password(password, user.hashed_password):
         return False
     return user
+
+
+def list_users(db: Session) -> list[User]:
+    return db.query(User).order_by(User.id).all()
+
+
+def update_user(db: Session, user_id: int, **kwargs) -> Optional[User]:
+    user = db.get(User, user_id)
+    if not user:
+        return None
+    for k, v in kwargs.items():
+        setattr(user, k, v)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def delete_user(db: Session, user_id: int) -> bool:
+    user = db.get(User, user_id)
+    if not user:
+        return False
+    db.delete(user)
+    db.commit()
+    return True
+
+
+def reset_password(db: Session, user_id: int, new_password: str) -> bool:
+    user = db.get(User, user_id)
+    if not user:
+        return False
+    user.hashed_password = hash_password(new_password)
+    db.commit()
+    return True

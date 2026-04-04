@@ -521,4 +521,189 @@ def test_websocket_connection_count():
     assert client.get("/health").json()["ws_connections"] == 0
     with client.websocket_connect("/ws/race"):
         assert client.get("/health").json()["ws_connections"] == 1
+
+
+# ------------------------------------------------------------------ #
+# Admin — user management
+# ------------------------------------------------------------------ #
+
+@pytest.fixture()
+def test_user():
+    """Create a disposable test user via the API; delete it after the test."""
+    r = client.post("/auth/register", json={
+        "username": "pytest_user",
+        "password": "password123",
+        "role": "viewer",
+        "full_name": "Pytest User",
+    })
+    assert r.status_code == 200, f"setup failed: {r.text}"
+    # Retrieve the created user's id from the list endpoint
+    users = client.get("/admin/users").json()
+    user_data = next(u for u in users if u["username"] == "pytest_user")
+
+    class _User:
+        id = user_data["id"]
+        username = user_data["username"]
+        role = user_data["role"]
+
+    yield _User()
+    client.delete(f"/admin/users/{user_data['id']}")
+
+
+def test_admin_list_users():
+    r = client.get("/admin/users")
+    assert r.status_code == 200
+    users = r.json()
+    assert isinstance(users, list)
+    # Every item has expected keys
+    for u in users:
+        assert "id" in u
+        assert "username" in u
+        assert "role" in u
+        assert "active" in u
+
+
+def test_admin_list_users_forbidden():
+    """Non-admin user should get 403."""
+    mock_viewer = User()
+    mock_viewer.id = 99
+    mock_viewer.username = "viewer1"
+    mock_viewer.hashed_password = "x"
+    mock_viewer.role = "viewer"
+    mock_viewer.active = True
+
+    app.dependency_overrides[get_current_user] = lambda: mock_viewer
+    try:
+        r = client.get("/admin/users")
+        assert r.status_code == 403
+    finally:
+        app.dependency_overrides[get_current_user] = lambda: _mock_admin
+
+
+def test_admin_create_user(test_user):
+    r = client.get("/admin/users")
+    usernames = [u["username"] for u in r.json()]
+    assert "pytest_user" in usernames
+
+
+def test_admin_update_user(test_user):
+    r = client.patch(f"/admin/users/{test_user.id}", json={"full_name": "Updated Name", "role": "steward"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["role"] == "steward"
+
+
+def test_admin_update_user_deactivate(test_user):
+    r = client.patch(f"/admin/users/{test_user.id}", json={"active": False})
+    assert r.status_code == 200
+    assert r.json()["active"] is False
+
+
+def test_admin_update_own_role_forbidden():
+    """Admin cannot change their own role."""
+    r = client.patch(f"/admin/users/{_mock_admin.id}", json={"role": "viewer"})
+    assert r.status_code == 400
+
+
+def test_admin_deactivate_own_account_forbidden():
+    """Admin cannot deactivate their own account."""
+    r = client.patch(f"/admin/users/{_mock_admin.id}", json={"active": False})
+    assert r.status_code == 400
+
+
+def test_admin_reset_password(test_user):
+    r = client.post(f"/admin/users/{test_user.id}/reset-password", json={"new_password": "newpass99"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
+
+def test_admin_reset_password_too_short(test_user):
+    r = client.post(f"/admin/users/{test_user.id}/reset-password", json={"new_password": "short"})
+    assert r.status_code == 400
+
+
+def test_admin_reset_password_not_found():
+    r = client.post("/admin/users/999999/reset-password", json={"new_password": "validpassword"})
+    assert r.status_code == 404
+
+
+def test_admin_delete_user(test_user):
+    r = client.delete(f"/admin/users/{test_user.id}")
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    # Verify gone
+    users = client.get("/admin/users").json()
+    assert not any(u["id"] == test_user.id for u in users)
+
+
+def test_admin_delete_own_account_forbidden():
+    r = client.delete(f"/admin/users/{_mock_admin.id}")
+    assert r.status_code == 400
+
+
+def test_admin_delete_not_found():
+    r = client.delete("/admin/users/999999")
+    assert r.status_code == 404
+
+
+# ------------------------------------------------------------------ #
+# Change password
+# ------------------------------------------------------------------ #
+
+def _make_mock_user(test_user, hashed_password):
+    """Build a mock User with a real bcrypt hash for change-password tests."""
+    mock = User()
+    mock.id = test_user.id
+    mock.username = test_user.username
+    mock.hashed_password = hashed_password
+    mock.role = "viewer"
+    mock.active = True
+    return mock
+
+
+def test_change_password(test_user):
+    """A user can change their own password with the correct current password."""
+    from app.auth import hash_password
+    # Reset to known password via admin endpoint first
+    client.post(f"/admin/users/{test_user.id}/reset-password", json={"new_password": "password123"})
+    mock = _make_mock_user(test_user, hash_password("password123"))
+    app.dependency_overrides[get_current_user] = lambda: mock
+    try:
+        r = client.post("/auth/change-password", json={
+            "current_password": "password123",
+            "new_password": "newpassword99",
+        })
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+    finally:
+        app.dependency_overrides[get_current_user] = lambda: _mock_admin
+
+
+def test_change_password_wrong_current(test_user):
+    from app.auth import hash_password
+    mock = _make_mock_user(test_user, hash_password("password123"))
+    app.dependency_overrides[get_current_user] = lambda: mock
+    try:
+        r = client.post("/auth/change-password", json={
+            "current_password": "wrongpassword",
+            "new_password": "newpassword99",
+        })
+        assert r.status_code == 400
+    finally:
+        app.dependency_overrides[get_current_user] = lambda: _mock_admin
+
+
+def test_change_password_too_short(test_user):
+    from app.auth import hash_password
+    mock = _make_mock_user(test_user, hash_password("password123"))
+    app.dependency_overrides[get_current_user] = lambda: mock
+    try:
+        r = client.post("/auth/change-password", json={
+            "current_password": "password123",
+            "new_password": "short",
+        })
+        assert r.status_code == 400
+    finally:
+        app.dependency_overrides[get_current_user] = lambda: _mock_admin
     assert client.get("/health").json()["ws_connections"] == 0
