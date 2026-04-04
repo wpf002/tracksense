@@ -133,6 +133,7 @@ class RaceTracker:
         self.finish_order: list[str] = []                 # horse_ids in finish order
         self.race_start_wall: Optional[float] = None
         self.race_start_mono: Optional[float] = None
+        self.race_finish_elapsed_ms: Optional[int] = None
         self.total_expected: int = 0
         # Simulation pause/stop controls
         self._sim_pause = threading.Event()
@@ -205,6 +206,7 @@ class RaceTracker:
             self.finish_order.clear()
             self.race_start_wall = None
             self.race_start_mono = None
+            self.race_finish_elapsed_ms = None
             self.status = RaceStatus.ARMED
             return {"ok": True, "armed": True, "horses": len(self.registered_horses)}
 
@@ -285,6 +287,7 @@ class RaceTracker:
                 track.finish_position = len(self.finish_order)
                 if len(self.finish_order) >= self.total_expected:
                     self.status = RaceStatus.FINISHED
+                    self.race_finish_elapsed_ms = self._compute_elapsed_ms()
 
             horse = self.registered_horses[tag_id]
             response = {
@@ -417,6 +420,8 @@ class RaceTracker:
 
     def _compute_elapsed_ms(self) -> int:
         """Elapsed race time in ms, paused time subtracted. Call inside lock."""
+        if self.race_finish_elapsed_ms is not None:
+            return self.race_finish_elapsed_ms
         raw_s = time.monotonic() - self.race_start_mono
         paused_s = self._total_paused_s
         if self._pause_start_mono is not None:

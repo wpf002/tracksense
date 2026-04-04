@@ -72,6 +72,10 @@ export default function LiveRace() {
         clientRaceStartAt.current = null
         setElapsedMs(data.elapsed_ms)
         setElapsedSince(null)
+      } else if (data.status === 'finished') {
+        clientRaceStartAt.current = null
+        setElapsedMs((prev) => prev ?? data.elapsed_ms ?? null)
+        setElapsedSince(null)
       } else if (data.status === 'idle') {
         clientRaceStartAt.current = null
         setElapsedMs(null)
@@ -158,6 +162,9 @@ export default function LiveRace() {
           qc.invalidateQueries({ queryKey: ['race-state'] })
           if (data.race_finished) {
             setStatus('finished')
+            clientRaceStartAt.current = null
+            setElapsedMs(data.elapsed_ms ?? null)
+            setElapsedSince(null)
             qc.invalidateQueries({ queryKey: ['race-status'] })
           }
         }
