@@ -20,6 +20,7 @@ from app.database import get_db
 from app import crud
 from app.auth import create_access_token, decode_token
 from app.models import User
+from app.api_keys_router import require_jwt_or_api_key
 
 router = APIRouter()
 
@@ -811,7 +812,7 @@ def compare_horses(epc1: str, epc2: str, db: Session = Depends(get_db)):
 
 
 @router.get("/horses/{epc}")
-def get_horse(epc: str, db: Session = Depends(get_db)):
+def get_horse(epc: str, db: Session = Depends(get_db), _auth=Depends(require_jwt_or_api_key)):
     horse = crud.get_horse(db, epc.strip().upper())
     if not horse:
         raise HTTPException(404, f"Horse '{epc}' not found")
@@ -835,7 +836,7 @@ def get_horse(epc: str, db: Session = Depends(get_db)):
 
 
 @router.get("/horses/{epc}/career")
-def horse_career(epc: str, db: Session = Depends(get_db)):
+def horse_career(epc: str, db: Session = Depends(get_db), _auth=Depends(require_jwt_or_api_key)):
     epc = epc.strip().upper()
     if not crud.get_horse(db, epc):
         raise HTTPException(404, f"Horse '{epc}' not found")
@@ -952,6 +953,25 @@ def get_race(race_id: int, db: Session = Depends(get_db)):
             {"horse_epc": e.horse_epc, "saddle_cloth": e.saddle_cloth}
             for e in race.entries
         ],
+        "results": [
+            {
+                "horse_epc": r.horse_epc,
+                "finish_position": r.finish_position,
+                "elapsed_ms": r.elapsed_ms,
+            }
+            for r in sorted(race.results, key=lambda r: r.finish_position)
+        ],
+    }
+
+
+@router.get("/races/{race_id}/results")
+def get_race_results(race_id: int, db: Session = Depends(get_db), _auth=Depends(require_jwt_or_api_key)):
+    race = crud.get_race(db, race_id)
+    if not race:
+        raise HTTPException(404, f"Race {race_id} not found")
+    return {
+        "race_id": race.id,
+        "status": race.status,
         "results": [
             {
                 "horse_epc": r.horse_epc,

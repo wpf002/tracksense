@@ -879,3 +879,182 @@ def test_sign_payload():
     sig = sign_payload(b"hello", "mysecret")
     assert sig.startswith("sha256=")
     assert len(sig) == 71  # "sha256=" + 64 hex chars
+
+
+# ------------------------------------------------------------------ #
+# API keys — management (admin) + third-party auth
+# ------------------------------------------------------------------ #
+
+from app.api_keys_router import _get_current_user as _api_keys_get_current_user
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _ensure_api_keys_table():
+    """Create api_keys table in test SQLite DB if it doesn't exist yet."""
+    from app.database import Base, engine
+    Base.metadata.create_all(bind=engine)
+
+
+@pytest.fixture()
+def admin_api_key():
+    """
+    Create a real API key via the admin endpoint and yield the response dict
+    (which includes the raw 'key').  Deactivates the key after the test.
+    """
+    app.dependency_overrides[_api_keys_get_current_user] = lambda: _mock_admin
+    try:
+        r = client.post("/api-keys", json={"name": "pytest_key"})
+        assert r.status_code == 200, f"API key creation failed: {r.text}"
+        data = r.json()
+        yield data
+        client.delete(f"/api-keys/{data['id']}")
+    finally:
+        app.dependency_overrides.pop(_api_keys_get_current_user, None)
+
+
+@pytest.fixture()
+def test_horse_for_api_key():
+    """Create a disposable horse for API key endpoint tests; delete after."""
+    epc = "APIKEYTEST0001"
+    client.post("/horses", json={"epc": epc, "name": "Api Key Horse"})
+    yield epc
+    # best-effort cleanup via direct DB delete
+    from app.database import SessionLocal
+    from app.models import Horse
+    db = SessionLocal()
+    try:
+        h = db.get(Horse, epc)
+        if h:
+            db.delete(h)
+            db.commit()
+    finally:
+        db.close()
+
+
+def test_api_key_create():
+    """POST /api-keys returns id, name, and the raw key (once only)."""
+    app.dependency_overrides[_api_keys_get_current_user] = lambda: _mock_admin
+    try:
+        r = client.post("/api-keys", json={"name": "GateSmart"})
+        assert r.status_code == 200
+        body = r.json()
+        assert "id" in body
+        assert body["name"] == "GateSmart"
+        assert "key" in body
+        assert len(body["key"]) > 20
+        # cleanup
+        client.delete(f"/api-keys/{body['id']}")
+    finally:
+        app.dependency_overrides.pop(_api_keys_get_current_user, None)
+
+
+def test_api_key_list(admin_api_key):
+    """GET /api-keys returns list without raw key field."""
+    app.dependency_overrides[_api_keys_get_current_user] = lambda: _mock_admin
+    try:
+        r = client.get("/api-keys")
+        assert r.status_code == 200
+        keys = r.json()
+        assert isinstance(keys, list)
+        found = next((k for k in keys if k["id"] == admin_api_key["id"]), None)
+        assert found is not None
+        assert found["name"] == "pytest_key"
+        assert found["is_active"] is True
+        assert "key" not in found          # raw key must never be returned
+        assert "key_hash" not in found     # hash must never be returned
+    finally:
+        app.dependency_overrides.pop(_api_keys_get_current_user, None)
+
+
+def test_api_key_create_forbidden_for_non_admin():
+    """Non-admin user gets 403 when creating an API key."""
+    mock_viewer = User()
+    mock_viewer.id = 99
+    mock_viewer.username = "viewer1"
+    mock_viewer.hashed_password = "x"
+    mock_viewer.role = "viewer"
+    mock_viewer.active = True
+
+    app.dependency_overrides[_api_keys_get_current_user] = lambda: mock_viewer
+    try:
+        r = client.post("/api-keys", json={"name": "Sneaky"})
+        assert r.status_code == 403
+    finally:
+        app.dependency_overrides.pop(_api_keys_get_current_user, None)
+
+
+def test_api_key_grants_access_to_protected_endpoint(admin_api_key, test_horse_for_api_key):
+    """A valid API key allows access to GET /horses/{epc}."""
+    raw_key = admin_api_key["key"]
+    r = client.get(
+        f"/horses/{test_horse_for_api_key}",
+        headers={"X-API-Key": raw_key},
+    )
+    assert r.status_code == 200
+    assert r.json()["epc"] == test_horse_for_api_key
+
+
+def test_api_key_grants_access_to_career_endpoint(admin_api_key, test_horse_for_api_key):
+    """A valid API key allows access to GET /horses/{epc}/career."""
+    raw_key = admin_api_key["key"]
+    r = client.get(
+        f"/horses/{test_horse_for_api_key}/career",
+        headers={"X-API-Key": raw_key},
+    )
+    assert r.status_code == 200
+    assert r.json()["epc"] == test_horse_for_api_key
+
+
+def test_api_key_grants_access_to_race_results(admin_api_key):
+    """A valid API key on GET /races/{id}/results returns 404 (no race) not 401."""
+    raw_key = admin_api_key["key"]
+    r = client.get("/races/999999/results", headers={"X-API-Key": raw_key})
+    # 404 means auth passed (race just doesn't exist)
+    assert r.status_code == 404
+
+
+def test_invalid_api_key_returns_401(test_horse_for_api_key):
+    """An unknown API key value returns 401."""
+    r = client.get(
+        f"/horses/{test_horse_for_api_key}",
+        headers={"X-API-Key": "totally-invalid-key-value"},
+    )
+    assert r.status_code == 401
+
+
+def test_inactive_api_key_returns_401(admin_api_key, test_horse_for_api_key):
+    """A deactivated API key returns 401."""
+    raw_key = admin_api_key["key"]
+    key_id = admin_api_key["id"]
+
+    # Deactivate it
+    app.dependency_overrides[_api_keys_get_current_user] = lambda: _mock_admin
+    try:
+        r = client.delete(f"/api-keys/{key_id}")
+        assert r.status_code == 200
+        assert r.json()["is_active"] is False
+    finally:
+        app.dependency_overrides.pop(_api_keys_get_current_user, None)
+
+    # Try to use it — must be refused
+    r = client.get(
+        f"/horses/{test_horse_for_api_key}",
+        headers={"X-API-Key": raw_key},
+    )
+    assert r.status_code == 401
+
+
+def test_no_auth_on_protected_endpoint_returns_401(test_horse_for_api_key):
+    """GET /horses/{epc} without any credential returns 401."""
+    r = client.get(f"/horses/{test_horse_for_api_key}")
+    assert r.status_code == 401
+
+
+def test_api_key_deactivate_not_found():
+    """DELETE /api-keys/{id} with unknown id returns 404."""
+    app.dependency_overrides[_api_keys_get_current_user] = lambda: _mock_admin
+    try:
+        r = client.delete("/api-keys/nonexistent-id-xyz")
+        assert r.status_code == 404
+    finally:
+        app.dependency_overrides.pop(_api_keys_get_current_user, None)

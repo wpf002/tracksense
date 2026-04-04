@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.routes import router
+from app.api_keys_router import router as api_keys_router
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(router)
+    app.include_router(api_keys_router)
     return app
 
 

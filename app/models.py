@@ -222,6 +222,16 @@ class WebhookSubscription(Base):
     created_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
 
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)          # UUID
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)  # SHA-256 hex
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class User(Base):
     __tablename__ = "users"
 
