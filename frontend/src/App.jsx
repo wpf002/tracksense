@@ -8,6 +8,7 @@ import RaceCardBuilder from './views/RaceCardBuilder'
 import Login from './views/Login'
 import AdminUsers from './views/AdminUsers'
 import ChangePassword from './views/ChangePassword'
+import Webhooks from './views/Webhooks'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="/horses/:epc" element={<HorseProfile />} />
             <Route path="/builder" element={<RaceCardBuilder />} />
             <Route path="/admin/users" element={<AdminUsers />} />
+            <Route path="/admin/webhooks" element={<Webhooks />} />
             <Route path="/settings/password" element={<ChangePassword />} />
             <Route path="*" element={<Navigate to="/live" replace />} />
           </Route>

@@ -263,6 +263,117 @@ def admin_delete_user(
 
 
 # ------------------------------------------------------------------ #
+# Webhook endpoints
+# ------------------------------------------------------------------ #
+
+class CreateWebhookRequest(BaseModel):
+    name: str
+    url: str
+    secret: str
+    event_type: str = "race.finished"
+
+
+class UpdateWebhookRequest(BaseModel):
+    name: Optional[str] = None
+    url: Optional[str] = None
+    secret: Optional[str] = None
+    active: Optional[bool] = None
+
+
+@router.get("/webhooks")
+def list_webhooks(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    subs = crud.list_webhooks(db)
+    return [
+        {
+            "id": s.id,
+            "name": s.name,
+            "url": s.url,
+            "event_type": s.event_type,
+            "active": s.active,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "created_by": s.created_by,
+        }
+        for s in subs
+    ]
+
+
+@router.post("/webhooks")
+def create_webhook(
+    req: CreateWebhookRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    sub = crud.create_webhook(
+        db,
+        name=req.name,
+        url=req.url,
+        secret=req.secret,
+        event_type=req.event_type,
+        created_by=current_user.username,
+    )
+    return {"ok": True, "id": sub.id, "name": sub.name, "url": sub.url}
+
+
+@router.patch("/webhooks/{webhook_id}")
+def update_webhook(
+    webhook_id: int,
+    req: UpdateWebhookRequest,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    sub = crud.update_webhook(db, webhook_id, **updates)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    return {"ok": True}
+
+
+@router.delete("/webhooks/{webhook_id}")
+def delete_webhook(
+    webhook_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    ok = crud.delete_webhook(db, webhook_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    return {"ok": True}
+
+
+@router.post("/webhooks/{webhook_id}/test")
+def test_webhook(
+    webhook_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.webhooks import deliver_webhook
+    sub = crud.get_webhook(db, webhook_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    test_payload = {
+        "event": "race.finished.test",
+        "timestamp": __import__("time").time(),
+        "venue_id": "TEST",
+        "race_summary": {
+            "total_runners": 1,
+            "total_finished": 1,
+            "elapsed_ms": 60000,
+            "elapsed_str": "1:00.000",
+        },
+        "results": [],
+    }
+
+    success = deliver_webhook(sub, test_payload)
+    if success:
+        return {"ok": True, "status_code": 200}
+    return {"ok": False, "error": "Delivery failed — check URL and server logs"}
+
+
+# ------------------------------------------------------------------ #
 # Venue management
 # ------------------------------------------------------------------ #
 

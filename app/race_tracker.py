@@ -288,6 +288,16 @@ class RaceTracker:
                 if len(self.finish_order) >= self.total_expected:
                     self.status = RaceStatus.FINISHED
                     self.race_finish_elapsed_ms = self._compute_elapsed_ms()
+                    # Fire webhooks after lock is released. get_race_state()
+                    # acquires self._lock itself, so it must not be called while
+                    # we hold it. Thread.start() here schedules the thread; by
+                    # the time it actually runs, submit_tag has returned and
+                    # released the lock, so get_race_state() succeeds cleanly.
+                    tracker_ref = self
+                    def _fire():
+                        from app.webhooks import fire_webhooks
+                        fire_webhooks(tracker_ref.get_race_state())
+                    threading.Thread(target=_fire, daemon=True).start()
 
             horse = self.registered_horses[tag_id]
             response = {

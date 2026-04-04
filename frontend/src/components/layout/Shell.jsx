@@ -63,6 +63,9 @@ export default function Shell() {
                 {role === 'admin' && (
                   <NavLink to="/admin/users">User Management</NavLink>
                 )}
+                {role === 'admin' && (
+                  <NavLink to="/admin/webhooks">Webhooks</NavLink>
+                )}
               </div>
             )}
           </div>

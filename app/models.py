@@ -209,6 +209,19 @@ class TestBarnRecord(Base):
     horse: Mapped["Horse"] = relationship("Horse", back_populates="test_barn_records")
 
 
+class WebhookSubscription(Base):
+    __tablename__ = "webhook_subscriptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    url: Mapped[str] = mapped_column(String(512), nullable=False)
+    secret: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False, default="race.finished")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
+
 class User(Base):
     __tablename__ = "users"
 

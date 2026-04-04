@@ -7,6 +7,7 @@ export default defineConfig({
     proxy: {
       '/auth': 'http://localhost:8001',
       '/admin': 'http://localhost:8001',
+      '/webhooks': 'http://localhost:8001',
       '/health': 'http://localhost:8001',
       '/race': 'http://localhost:8001',
       '/venues': 'http://localhost:8001',

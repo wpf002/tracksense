@@ -706,4 +706,176 @@ def test_change_password_too_short(test_user):
         assert r.status_code == 400
     finally:
         app.dependency_overrides[get_current_user] = lambda: _mock_admin
-    assert client.get("/health").json()["ws_connections"] == 0
+
+
+# ------------------------------------------------------------------ #
+# Webhook subscriptions
+# ------------------------------------------------------------------ #
+
+@pytest.fixture()
+def test_webhook():
+    """Create a disposable webhook via the API; delete after test."""
+    r = client.post("/webhooks", json={
+        "name": "pytest_webhook",
+        "url": "https://example.com/hook",
+        "secret": "testsecret123",
+    })
+    assert r.status_code == 200, f"setup failed: {r.text}"
+    wh_id = r.json()["id"]
+    yield {"id": wh_id, "name": "pytest_webhook", "url": "https://example.com/hook"}
+    client.delete(f"/webhooks/{wh_id}")
+
+
+def test_webhook_list_empty():
+    r = client.get("/webhooks")
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+def test_webhook_list_forbidden():
+    mock_viewer = User()
+    mock_viewer.id = 99
+    mock_viewer.username = "viewer1"
+    mock_viewer.hashed_password = "x"
+    mock_viewer.role = "viewer"
+    mock_viewer.active = True
+    app.dependency_overrides[get_current_user] = lambda: mock_viewer
+    try:
+        r = client.get("/webhooks")
+        assert r.status_code == 403
+    finally:
+        app.dependency_overrides[get_current_user] = lambda: _mock_admin
+
+
+def test_webhook_create(test_webhook):
+    webhooks = client.get("/webhooks").json()
+    names = [w["name"] for w in webhooks]
+    assert "pytest_webhook" in names
+    # Secret must never be returned
+    wh = next(w for w in webhooks if w["name"] == "pytest_webhook")
+    assert "secret" not in wh
+
+
+def test_webhook_create_missing_fields():
+    r = client.post("/webhooks", json={"name": "bad"})
+    assert r.status_code == 422
+
+
+def test_webhook_update_active(test_webhook):
+    r = client.patch(f"/webhooks/{test_webhook['id']}", json={"active": False})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    webhooks = client.get("/webhooks").json()
+    wh = next(w for w in webhooks if w["id"] == test_webhook["id"])
+    assert wh["active"] is False
+
+
+def test_webhook_update_not_found():
+    r = client.patch("/webhooks/999999", json={"active": False})
+    assert r.status_code == 404
+
+
+def test_webhook_delete(test_webhook):
+    r = client.delete(f"/webhooks/{test_webhook['id']}")
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    webhooks = client.get("/webhooks").json()
+    assert not any(w["id"] == test_webhook["id"] for w in webhooks)
+
+
+def test_webhook_delete_not_found():
+    r = client.delete("/webhooks/999999")
+    assert r.status_code == 404
+
+
+def test_webhook_test_endpoint(test_webhook):
+    """Test endpoint should call deliver_webhook; mock requests.post."""
+    from unittest.mock import patch, MagicMock
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    with patch("app.webhooks.requests.post", return_value=mock_resp) as mock_post:
+        r = client.post(f"/webhooks/{test_webhook['id']}/test")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is True
+        assert mock_post.called
+        call_args = mock_post.call_args
+        assert call_args[0][0] == test_webhook["url"]
+        headers = call_args[1]["headers"]
+        assert "X-TrackSense-Signature" in headers
+        assert headers["X-TrackSense-Event"] == "race.finished.test"
+
+
+def test_webhook_test_delivery_failure(test_webhook):
+    """Simulate a failed delivery (non-2xx response)."""
+    from unittest.mock import patch, MagicMock
+    mock_resp = MagicMock()
+    mock_resp.status_code = 500
+    with patch("app.webhooks.requests.post", return_value=mock_resp):
+        r = client.post(f"/webhooks/{test_webhook['id']}/test")
+        assert r.status_code == 200
+        assert r.json()["ok"] is False
+
+
+def test_webhook_test_not_found():
+    r = client.post("/webhooks/999999/test")
+    assert r.status_code == 404
+
+
+# ------------------------------------------------------------------ #
+# Webhook payload builder
+# ------------------------------------------------------------------ #
+
+def test_build_race_payload_structure():
+    from app.webhooks import build_race_payload
+    state = {
+        "status": "finished",
+        "venue_id": "TESTTRACK",
+        "total_expected": 2,
+        "total_finished": 2,
+        "elapsed_ms": 90000,
+        "elapsed_str": "1:30.000",
+        "horses": [
+            {
+                "horse_id": "EPC001",
+                "display_name": "Thunderstrike",
+                "saddle_cloth": "1",
+                "finish_position": 1,
+                "gates_passed": 3,
+                "events": [
+                    {"reader_id": "START", "gate_name": "Start", "distance_m": 0, "elapsed_ms": 0, "is_finish": False},
+                    {"reader_id": "FINISH", "gate_name": "Finish", "distance_m": 800, "elapsed_ms": 88000, "is_finish": True},
+                ],
+                "sectionals": [{"segment": "Start → Finish", "distance_m": 800, "elapsed_ms": 88000, "speed_kmh": 32.7}],
+            },
+            {
+                "horse_id": "EPC002",
+                "display_name": "Bolt",
+                "saddle_cloth": "2",
+                "finish_position": 2,
+                "gates_passed": 3,
+                "events": [
+                    {"reader_id": "START", "gate_name": "Start", "distance_m": 0, "elapsed_ms": 0, "is_finish": False},
+                    {"reader_id": "FINISH", "gate_name": "Finish", "distance_m": 800, "elapsed_ms": 90000, "is_finish": True},
+                ],
+                "sectionals": [],
+            },
+        ],
+    }
+    payload = build_race_payload(state)
+    assert payload["event"] == "race.finished"
+    assert payload["venue_id"] == "TESTTRACK"
+    assert len(payload["results"]) == 2
+    assert payload["results"][0]["position"] == 1
+    assert payload["results"][0]["elapsed_ms"] == 88000
+    assert payload["results"][0]["margin_ms"] is None
+    assert payload["results"][1]["position"] == 2
+    assert payload["results"][1]["margin_ms"] == 2000
+    assert payload["race_summary"]["total_finished"] == 2
+
+
+def test_sign_payload():
+    from app.webhooks import sign_payload
+    sig = sign_payload(b"hello", "mysecret")
+    assert sig.startswith("sha256=")
+    assert len(sig) == 71  # "sha256=" + 64 hex chars

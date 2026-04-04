@@ -638,3 +638,59 @@ def reset_password(db: Session, user_id: int, new_password: str) -> bool:
     user.hashed_password = hash_password(new_password)
     db.commit()
     return True
+
+
+# ------------------------------------------------------------------ #
+# Webhook subscriptions
+# ------------------------------------------------------------------ #
+
+from app.models import WebhookSubscription
+
+
+def list_webhooks(db: Session) -> list[WebhookSubscription]:
+    return db.query(WebhookSubscription).order_by(WebhookSubscription.id).all()
+
+
+def get_webhook(db: Session, webhook_id: int) -> Optional[WebhookSubscription]:
+    return db.get(WebhookSubscription, webhook_id)
+
+
+def create_webhook(
+    db: Session,
+    name: str,
+    url: str,
+    secret: str,
+    event_type: str = "race.finished",
+    created_by: Optional[str] = None,
+) -> WebhookSubscription:
+    sub = WebhookSubscription(
+        name=name,
+        url=url,
+        secret=secret,
+        event_type=event_type,
+        created_by=created_by,
+    )
+    db.add(sub)
+    db.commit()
+    db.refresh(sub)
+    return sub
+
+
+def update_webhook(db: Session, webhook_id: int, **kwargs) -> Optional[WebhookSubscription]:
+    sub = db.get(WebhookSubscription, webhook_id)
+    if not sub:
+        return None
+    for k, v in kwargs.items():
+        setattr(sub, k, v)
+    db.commit()
+    db.refresh(sub)
+    return sub
+
+
+def delete_webhook(db: Session, webhook_id: int) -> bool:
+    sub = db.get(WebhookSubscription, webhook_id)
+    if not sub:
+        return False
+    db.delete(sub)
+    db.commit()
+    return True
