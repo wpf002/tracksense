@@ -1,15 +1,20 @@
-import { useNavigate, Outlet } from 'react-router-dom'
+import { useState } from 'react'
+import { useNavigate, Outlet, useLocation } from 'react-router-dom'
 import NavLink from './NavLink'
 import useRaceStore from '../../store/raceStore'
 import LiveDot from '../ui/LiveDot'
 
 export default function Shell() {
   const navigate = useNavigate()
+  const location = useLocation()
   const status = useRaceStore((s) => s.status)
   const connected = useRaceStore((s) => s.connected)
 
   const username = localStorage.getItem('ts_username') ?? ''
   const role = localStorage.getItem('ts_role') ?? ''
+
+  const isSettingsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/admin')
+  const [settingsOpen, setSettingsOpen] = useState(isSettingsActive)
 
   function handleLogout() {
     localStorage.removeItem('ts_token')
@@ -43,10 +48,22 @@ export default function Shell() {
           <NavLink to="/results">Results</NavLink>
           <NavLink to="/horses">Horses</NavLink>
           <NavLink to="/builder">Race Builder</NavLink>
-          <div className="mt-2 border-t border-border pt-2">
-            <NavLink to="/settings/password">Change Password</NavLink>
-            {role === 'admin' && (
-              <NavLink to="/admin/users">User Management</NavLink>
+
+          <div className="mt-3 border-t border-border pt-3">
+            <button
+              onClick={() => setSettingsOpen((o) => !o)}
+              className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium tracking-wide uppercase transition-colors text-text-muted hover:text-text-primary border-l-2 border-transparent pl-[10px]"
+            >
+              <span>Settings</span>
+              <span className="text-xs opacity-60">{settingsOpen ? '▲' : '▼'}</span>
+            </button>
+            {settingsOpen && (
+              <div className="pl-3">
+                <NavLink to="/settings/password">Change Password</NavLink>
+                {role === 'admin' && (
+                  <NavLink to="/admin/users">User Management</NavLink>
+                )}
+              </div>
             )}
           </div>
         </nav>

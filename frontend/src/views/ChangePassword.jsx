@@ -34,7 +34,8 @@ export default function ChangePassword() {
   }
 
   return (
-    <div className="p-6 max-w-sm">
+    <div className="min-h-screen flex items-center justify-center p-6">
+    <div className="w-full max-w-sm">
       {/* Header */}
       <div className="flex items-center gap-0 mb-6">
         <div className="w-1 self-stretch bg-accent mr-4" />
@@ -108,6 +109,7 @@ export default function ChangePassword() {
           </button>
         </form>
       </div>
+    </div>
     </div>
   )
 }
