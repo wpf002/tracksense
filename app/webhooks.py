@@ -11,6 +11,8 @@ import hmac
 import json
 import threading
 import time
+import uuid
+from datetime import datetime, timezone
 
 import requests
 
@@ -104,11 +106,24 @@ def sign_payload(payload_bytes: bytes, secret: str) -> str:
 # Delivery
 # ------------------------------------------------------------------ #
 
-def deliver_webhook(subscription, payload: dict) -> bool:
+def deliver_webhook(subscription, payload: dict, attempt_number: int = 1) -> bool:
     """
     POST payload to subscription.url with HMAC signature header.
+    Writes a WebhookDelivery log row after every attempt (success or failure).
     Returns True on 2xx, False otherwise.
     """
+    from app.database import SessionLocal
+    from app.models import WebhookDelivery
+
+    sub_id = subscription.id
+    sub_name = subscription.name
+    sub_url = subscription.url
+
+    response_code = None
+    response_body = None
+    error_message = None
+    success = False
+
     try:
         body = json.dumps(payload, separators=(",", ":")).encode()
         signature = sign_payload(body, subscription.secret)
@@ -118,14 +133,37 @@ def deliver_webhook(subscription, payload: dict) -> bool:
             "X-TrackSense-Event": payload.get("event", "race.finished"),
             "User-Agent": "TrackSense-Webhook/1.0",
         }
-        resp = requests.post(subscription.url, data=body, headers=headers, timeout=10)
+        resp = requests.post(sub_url, data=body, headers=headers, timeout=10)
+        response_code = resp.status_code
+        response_body = resp.text[:4000] if resp.text else None
         success = 200 <= resp.status_code < 300
         status = "OK" if success else "FAILED"
-        print(f"[webhook] {status} → {subscription.name} ({subscription.url}) — HTTP {resp.status_code}")
-        return success
+        print(f"[webhook] {status} → {sub_name} ({sub_url}) — HTTP {resp.status_code}")
     except Exception as exc:
-        print(f"[webhook] ERROR → {subscription.name} ({subscription.url}) — {exc}")
-        return False
+        error_message = str(exc)
+        print(f"[webhook] ERROR → {sub_name} ({sub_url}) — {exc}")
+
+    # Write delivery log (best-effort — never fail the caller)
+    try:
+        db = SessionLocal()
+        try:
+            db.add(WebhookDelivery(
+                id=str(uuid.uuid4()),
+                subscription_id=sub_id,
+                attempted_at=datetime.now(timezone.utc),
+                response_code=response_code,
+                response_body=response_body,
+                success=success,
+                attempt_number=attempt_number,
+                error_message=error_message,
+            ))
+            db.commit()
+        finally:
+            db.close()
+    except Exception as log_exc:
+        print(f"[webhook] delivery log write failed: {log_exc}")
+
+    return success
 
 
 # ------------------------------------------------------------------ #

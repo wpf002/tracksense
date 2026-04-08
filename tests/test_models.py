@@ -499,3 +499,23 @@ def test_get_test_barn_records(db):
 def test_get_test_barn_records_empty(db):
     crud.create_horse(db, epc="EPC001", name="Bolt")
     assert crud.get_test_barn_records(db, "EPC001") == []
+
+
+# ------------------------------------------------------------------ #
+# Race name field (Item 4)
+# ------------------------------------------------------------------ #
+
+def test_create_race_with_name(db_with_venue):
+    db = db_with_venue
+    result = crud.create_race(db, "FLEMINGTON", datetime(2026, 5, 1, 14, 0), 1609.0, name="The Flemington Cup")
+    assert result["ok"] is True
+    race = crud.get_race(db, result["race_id"])
+    assert race.name == "The Flemington Cup"
+
+
+def test_create_race_without_name_is_null(db_with_venue):
+    db = db_with_venue
+    result = crud.create_race(db, "FLEMINGTON", datetime(2026, 5, 1, 14, 0), 1609.0)
+    assert result["ok"] is True
+    race = crud.get_race(db, result["race_id"])
+    assert race.name is None

@@ -11,14 +11,18 @@ Design decisions:
   query results rather than raw SQL to stay portable across DB backends.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.orm import Session
+
+import json
+import uuid
 
 from app.models import (
     Horse, Owner, Trainer, VenueRecord, GateRecord,
     Race, RaceEntry, GateRead, RaceResult, VetRecord,
     WorkoutRecord, CheckInRecord, TestBarnRecord, User,
+    AuditLog, WebhookDelivery,
 )
 from app.auth import hash_password, verify_password
 
@@ -35,6 +39,7 @@ def create_horse(
     date_of_birth: Optional[str] = None,
     implant_date: Optional[str] = None,
     implant_vet: Optional[str] = None,
+    racing_api_horse_id: Optional[str] = None,
 ) -> dict:
     if db.get(Horse, epc):
         return {"ok": False, "error": f"Horse with EPC '{epc}' already exists"}
@@ -45,6 +50,7 @@ def create_horse(
         date_of_birth=date_of_birth,
         implant_date=implant_date,
         implant_vet=implant_vet,
+        racing_api_horse_id=racing_api_horse_id,
     )
     db.add(horse)
     db.commit()
@@ -121,11 +127,13 @@ def create_race(
     distance_m: float,
     surface: str = "turf",
     conditions: Optional[str] = None,
+    name: Optional[str] = None,
 ) -> dict:
     if not db.get(VenueRecord, venue_id):
         return {"ok": False, "error": f"Venue '{venue_id}' not found in database"}
     race = Race(
         venue_id=venue_id,
+        name=name,
         race_date=race_date,
         distance_m=distance_m,
         surface=surface,
@@ -694,3 +702,73 @@ def delete_webhook(db: Session, webhook_id: int) -> bool:
     db.delete(sub)
     db.commit()
     return True
+
+
+# ------------------------------------------------------------------ #
+# Webhook delivery log
+# ------------------------------------------------------------------ #
+
+def get_webhook_deliveries(
+    db: Session, webhook_id: int, limit: int = 50
+) -> list[WebhookDelivery]:
+    return (
+        db.query(WebhookDelivery)
+        .filter_by(subscription_id=webhook_id)
+        .order_by(WebhookDelivery.attempted_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def get_failed_deliveries(db: Session, limit: int = 50) -> list[WebhookDelivery]:
+    return (
+        db.query(WebhookDelivery)
+        .filter_by(success=False)
+        .order_by(WebhookDelivery.attempted_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+# ------------------------------------------------------------------ #
+# Audit log
+# ------------------------------------------------------------------ #
+
+def write_audit_log(
+    db: Session,
+    user: Optional[User],
+    action: str,
+    target_type: str,
+    target_id: str,
+    detail: Optional[dict] = None,
+) -> None:
+    """Write an audit log entry. Best-effort: exceptions are swallowed so they never fail a request."""
+    try:
+        entry = AuditLog(
+            id=str(uuid.uuid4()),
+            user_id=user.id if user else None,
+            username=user.username if user else "system",
+            action=action,
+            target_type=target_type,
+            target_id=str(target_id),
+            detail=json.dumps(detail) if detail else None,
+            occurred_at=datetime.now(timezone.utc),
+        )
+        db.add(entry)
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def list_audit_log(
+    db: Session,
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    limit: int = 100,
+) -> list[AuditLog]:
+    q = db.query(AuditLog)
+    if target_type:
+        q = q.filter(AuditLog.target_type == target_type)
+    if target_id:
+        q = q.filter(AuditLog.target_id == target_id)
+    return q.order_by(AuditLog.occurred_at.desc()).limit(limit).all()

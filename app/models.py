@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import (
     Boolean, DateTime, Float, ForeignKey, Integer, String, Text,
@@ -18,6 +18,7 @@ class Horse(Base):
     date_of_birth: Mapped[Optional[str]] = mapped_column(String, nullable=True)   # ISO date string
     implant_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)    # ISO date string
     implant_vet: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    racing_api_horse_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     owners: Mapped[list["Owner"]] = relationship("Owner", back_populates="horse", cascade="all, delete-orphan")
@@ -85,6 +86,7 @@ class Race(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     venue_id: Mapped[str] = mapped_column(String, ForeignKey("venue_records.venue_id"), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     race_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     distance_m: Mapped[float] = mapped_column(Float, nullable=False)
     surface: Mapped[str] = mapped_column(String, default="turf")
@@ -183,7 +185,7 @@ class CheckInRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
     race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True, index=True)
-    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     scanned_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     location: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -198,7 +200,7 @@ class TestBarnRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
     race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True)
-    checkin_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    checkin_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     checkin_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     checkout_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # None = still in barn
     checkout_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -207,6 +209,19 @@ class TestBarnRecord(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     horse: Mapped["Horse"] = relationship("Horse", back_populates="test_barn_records")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)          # UUID
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    username: Mapped[str] = mapped_column(String(128), nullable=False)
+    action: Mapped[str] = mapped_column(String(128), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)     # JSON blob
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 class WebhookSubscription(Base):
@@ -218,8 +233,31 @@ class WebhookSubscription(Base):
     secret: Mapped[str] = mapped_column(String(128), nullable=False)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False, default="race.finished")
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     created_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
+    deliveries: Mapped[list["WebhookDelivery"]] = relationship(
+        "WebhookDelivery", back_populates="subscription", cascade="all, delete-orphan"
+    )
+
+
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)          # UUID
+    subscription_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("webhook_subscriptions.id"), nullable=False, index=True
+    )
+    attempted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    response_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    subscription: Mapped["WebhookSubscription"] = relationship(
+        "WebhookSubscription", back_populates="deliveries"
+    )
 
 
 class ApiKey(Base):
@@ -228,8 +266,9 @@ class ApiKey(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)          # UUID
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)  # SHA-256 hex
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    rate_limit_per_minute: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
 
 class User(Base):

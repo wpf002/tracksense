@@ -255,6 +255,127 @@ class TCPReader:
 
 
 # ------------------------------------------------------------------ #
+# LLRP Reader (Impinj R220 / R420 and compatible readers)
+# ------------------------------------------------------------------ #
+
+class LLRPReader:
+    """
+    Reads tag data from an Impinj R220/R420 (or any LLRP-compliant) reader.
+
+    Uses the sllurp library for LLRP protocol support.
+    Install with: pip install sllurp
+
+    Calls the same on_tag(tag_id: str) callback interface as SerialReader
+    and TCPReader, so the rest of the system is unaware of which reader
+    type is in use.
+
+    Tag reports are delivered asynchronously by sllurp via a callback;
+    this class bridges them into the TrackSense callback interface.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        port: int = 5084,
+        on_tag: Optional[Callable[[str], None]] = None,
+        reader_id: str = "LLRP-READER-1",
+    ):
+        try:
+            from sllurp import llrp as _sllurp_llrp  # noqa: PLC0415
+            self._sllurp_llrp = _sllurp_llrp
+        except ImportError as exc:
+            raise ImportError(
+                "sllurp is required for LLRP reader support (Impinj R220/R420). "
+                "Install it with: pip install sllurp"
+            ) from exc
+
+        self.host = host
+        self.port = port
+        self.on_tag = on_tag or self._default_submit
+        self.reader_id = reader_id
+        self._client = None
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+
+    def _handle_tags(self, reader, tags):
+        """
+        Called by sllurp on each tag report batch.
+        Extracts EPC-96 from each tag and forwards to on_tag callback.
+        """
+        for tag in tags:
+            epc_bytes = tag.get("EPC-96", b"")
+            if isinstance(epc_bytes, bytes):
+                epc = epc_bytes.hex().upper()
+            else:
+                epc = normalise_tag_id(str(epc_bytes))
+            if epc:
+                self.on_tag(epc)
+
+    def _make_client(self):
+        """
+        Create and connect a sllurp LLRPClient.
+        Raises on connection failure — caller handles retry logic.
+        """
+        config = self._sllurp_llrp.LLRPReaderConfig({})
+        client = self._sllurp_llrp.LLRPClient(self.host, self.port, config)
+        client.add_tag_report_handler(self._handle_tags)
+        client.connect()
+        return client
+
+    def _run_loop(self):
+        while self._running:
+            try:
+                print(f"[hw-llrp] Connecting to {self.host}:{self.port}...")
+                self._client = self._make_client()
+                print(f"[hw-llrp] Connected to {self.host}:{self.port}")
+                # Block here while the reader is active; sllurp fires callbacks
+                # from its own internal thread as tags are read.
+                while self._running:
+                    time.sleep(0.1)
+            except Exception as exc:
+                print(f"[hw-llrp] Connection error: {exc}. Retrying in 5s...")
+                if self._running:
+                    time.sleep(5)
+
+    def start(self):
+        """Start the LLRP reader in a background thread."""
+        self._running = True
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        """Stop the LLRP reader and disconnect cleanly."""
+        self._running = False
+        if self._client:
+            try:
+                self._client.disconnect()
+            except Exception:
+                pass
+            self._client = None
+        if self._thread:
+            self._thread.join(timeout=3)
+        print("[hw-llrp] Stopped.")
+
+    def _default_submit(self, tag_id: str):
+        """Default callback: submit tag to TrackSense backend."""
+        try:
+            r = requests.post(
+                SUBMIT_URL,
+                json={"tag_id": tag_id, "reader_id": self.reader_id},
+                timeout=2,
+            )
+            result = r.json()
+            if result.get("ok") and not result.get("duplicate"):
+                print(f"[hw-llrp] Tag: {tag_id} → Position {result.get('position')}")
+            elif result.get("duplicate"):
+                pass
+            else:
+                print(f"[hw-llrp] Rejected: {tag_id} — {result.get('reason')}")
+        except Exception as e:
+            print(f"[hw-llrp] Submit error: {e}")
+
+
+# ------------------------------------------------------------------ #
 # Entry point for hardware mode
 # ------------------------------------------------------------------ #
 

@@ -3,7 +3,7 @@ import asyncio
 import random
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -156,6 +156,25 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     }
 
 
+@router.post("/auth/refresh")
+def refresh_token(
+    credentials: HTTPAuthorizationCredentials = Depends(_security),
+):
+    """
+    Exchange a valid (non-expired) Bearer token for a fresh one.
+    Returns HTTP 401 if the token is expired or invalid.
+    """
+    token = credentials.credentials
+    payload = decode_token(token)
+    if payload is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+    new_token = create_access_token({"sub": username})
+    return {"access_token": new_token, "token_type": "bearer"}
+
+
 @router.get("/auth/me")
 def get_me(current_user: User = Depends(get_current_user)):
     return {
@@ -233,6 +252,7 @@ def admin_update_user(
     user = crud.update_user(db, user_id, **updates)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    crud.write_audit_log(db, current_user, "update", "user", str(user_id), updates)
     return {"ok": True, "username": user.username, "role": user.role, "active": user.active}
 
 
@@ -262,7 +282,33 @@ def admin_delete_user(
     ok = crud.delete_user(db, user_id)
     if not ok:
         raise HTTPException(status_code=404, detail="User not found")
+    crud.write_audit_log(db, current_user, "delete", "user", str(user_id), None)
     return {"ok": True}
+
+
+@router.get("/admin/audit-log")
+def get_audit_log(
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    limit: int = 100,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    limit = min(limit, 500)
+    entries = crud.list_audit_log(db, target_type=target_type, target_id=target_id, limit=limit)
+    return [
+        {
+            "id": e.id,
+            "user_id": e.user_id,
+            "username": e.username,
+            "action": e.action,
+            "target_type": e.target_type,
+            "target_id": e.target_id,
+            "detail": e.detail,
+            "occurred_at": e.occurred_at.isoformat() if e.occurred_at else None,
+        }
+        for e in entries
+    ]
 
 
 # ------------------------------------------------------------------ #
@@ -342,7 +388,29 @@ def create_webhook(
         event_type=req.event_type,
         created_by=current_user.username,
     )
+    crud.write_audit_log(db, current_user, "create", "webhook", str(sub.id), {"name": req.name, "url": req.url})
     return {"ok": True, "id": sub.id, "name": sub.name, "url": sub.url}
+
+
+@router.get("/webhooks/deliveries/failures")
+def list_failed_deliveries(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Last 50 failed deliveries across all subscriptions."""
+    records = crud.get_failed_deliveries(db)
+    return [
+        {
+            "id": r.id,
+            "subscription_id": r.subscription_id,
+            "attempted_at": r.attempted_at.isoformat() if r.attempted_at else None,
+            "response_code": r.response_code,
+            "success": r.success,
+            "attempt_number": r.attempt_number,
+            "error_message": r.error_message,
+        }
+        for r in records
+    ]
 
 
 @router.patch("/webhooks/{webhook_id}")
@@ -362,12 +430,13 @@ def update_webhook(
 @router.delete("/webhooks/{webhook_id}")
 def delete_webhook(
     webhook_id: int,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     ok = crud.delete_webhook(db, webhook_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Webhook not found")
+    crud.write_audit_log(db, current_user, "delete", "webhook", str(webhook_id), None)
     return {"ok": True}
 
 
@@ -399,6 +468,30 @@ def test_webhook(
     if success:
         return {"ok": True, "status_code": 200}
     return {"ok": False, "error": "Delivery failed — check URL and server logs"}
+
+
+@router.get("/webhooks/{webhook_id}/deliveries")
+def list_webhook_deliveries(
+    webhook_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Last 50 delivery records for a subscription, newest first."""
+    sub = crud.get_webhook(db, webhook_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    records = crud.get_webhook_deliveries(db, webhook_id)
+    return [
+        {
+            "id": r.id,
+            "attempted_at": r.attempted_at.isoformat() if r.attempted_at else None,
+            "response_code": r.response_code,
+            "success": r.success,
+            "attempt_number": r.attempt_number,
+            "error_message": r.error_message,
+        }
+        for r in records
+    ]
 
 
 # ------------------------------------------------------------------ #
@@ -473,7 +566,12 @@ def remove_gate(venue_id: str, reader_id: str, _: User = Depends(get_current_use
 # ------------------------------------------------------------------ #
 
 @router.post("/race/register")
-def register_horses(req: RegisterRequest, _: User = Depends(get_current_user)):
+def register_horses(
+    req: RegisterRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
     if not req.horses:
         raise HTTPException(400, "Must provide at least one horse")
 
@@ -503,23 +601,39 @@ def register_horses(req: RegisterRequest, _: User = Depends(get_current_user)):
         raise HTTPException(400, result["error"])
 
     set_tracker(t)
+
+    # Fire GateSmart horse mapping for any horse that has a racing_api_horse_id
+    for entry in entries:
+        horse = crud.get_horse(db, entry.horse_id)
+        if horse and horse.racing_api_horse_id:
+            background_tasks.add_task(
+                gatesmart.post_horse_mapping,
+                epc=horse.epc,
+                horse_name=horse.name,
+                racing_api_horse_id=horse.racing_api_horse_id,
+            )
+
     return result
 
 
 @router.post("/race/arm")
-def arm_race(_: User = Depends(get_current_user)):
+def arm_race(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     t = get_tracker()
     if not t:
         raise HTTPException(400, "No race registered. POST /race/register first.")
     result = t.arm()
     if not result["ok"]:
         raise HTTPException(400, result["error"])
+    crud.write_audit_log(db, current_user, "arm", "race", t.venue_id, None)
     return result
 
 
 @router.post("/race/reset")
-def reset_race(_: User = Depends(get_current_user)):
+def reset_race(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = get_tracker()
+    venue_id = t.venue_id if t else "none"
     set_tracker(None)
+    crud.write_audit_log(db, current_user, "reset", "race", venue_id, None)
     return {"ok": True, "reset": True}
 
 
@@ -724,6 +838,7 @@ class CreateHorseRequest(BaseModel):
     date_of_birth: Optional[str] = Field(None, description="ISO date e.g. '2018-09-14'")
     implant_date: Optional[str] = Field(None, description="ISO date of implant procedure")
     implant_vet: Optional[str] = None
+    racing_api_horse_id: Optional[str] = Field(None, description="GateSmart / racing API horse ID for automatic mapping")
 
 
 class AddOwnerRequest(BaseModel):
@@ -740,6 +855,7 @@ class AddTrainerRequest(BaseModel):
 
 class CreateRaceRequest(BaseModel):
     venue_id: str
+    name: Optional[str] = Field(None, description="Human-readable race name e.g. 'The Flemington Cup'")
     race_date: str = Field(..., description="ISO datetime e.g. '2026-04-02T14:30:00'")
     distance_m: float
     surface: str = "turf"
@@ -792,7 +908,7 @@ class TestBarnCheckOutRequest(BaseModel):
 # ------------------------------------------------------------------ #
 
 @router.post("/horses")
-def create_horse(req: CreateHorseRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def create_horse(req: CreateHorseRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     result = crud.create_horse(
         db,
         epc=req.epc.strip().upper(),
@@ -801,9 +917,11 @@ def create_horse(req: CreateHorseRequest, db: Session = Depends(get_db), _: User
         date_of_birth=req.date_of_birth,
         implant_date=req.implant_date,
         implant_vet=req.implant_vet,
+        racing_api_horse_id=req.racing_api_horse_id,
     )
     if not result["ok"]:
         raise HTTPException(409, result["error"])
+    crud.write_audit_log(db, current_user, "create", "horse", req.epc.strip().upper(), {"name": req.name})
     return result
 
 
@@ -850,6 +968,7 @@ def get_horse(epc: str, db: Session = Depends(get_db), _auth=Depends(require_jwt
         "date_of_birth": horse.date_of_birth,
         "implant_date": horse.implant_date,
         "implant_vet": horse.implant_vet,
+        "racing_api_horse_id": horse.racing_api_horse_id,
         "created_at": horse.created_at.isoformat() if horse.created_at else None,
         "owners": [
             {"owner_name": o.owner_name, "from_date": o.from_date, "to_date": o.to_date}
@@ -908,7 +1027,7 @@ def get_vet_records(epc: str, db: Session = Depends(get_db)):
 
 
 @router.post("/horses/{epc}/vet")
-def add_vet_record(epc: str, req: AddVetRecordRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def add_vet_record(epc: str, req: AddVetRecordRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     result = crud.add_vet_record(
         db,
         epc=epc.strip().upper(),
@@ -919,6 +1038,8 @@ def add_vet_record(epc: str, req: AddVetRecordRequest, db: Session = Depends(get
     )
     if not result["ok"]:
         raise HTTPException(404, result["error"])
+    crud.write_audit_log(db, current_user, "vet_record", "horse", epc.strip().upper(),
+                         {"event_type": req.event_type, "event_date": req.event_date})
     return result
 
 
@@ -927,7 +1048,7 @@ def add_vet_record(epc: str, req: AddVetRecordRequest, db: Session = Depends(get
 # ------------------------------------------------------------------ #
 
 @router.post("/races")
-def create_race(req: CreateRaceRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def create_race(req: CreateRaceRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
         race_date = datetime.fromisoformat(req.race_date)
     except ValueError:
@@ -935,6 +1056,7 @@ def create_race(req: CreateRaceRequest, db: Session = Depends(get_db), _: User =
     result = crud.create_race(
         db,
         venue_id=req.venue_id.strip().upper(),
+        name=req.name,
         race_date=race_date,
         distance_m=req.distance_m,
         surface=req.surface,
@@ -942,6 +1064,8 @@ def create_race(req: CreateRaceRequest, db: Session = Depends(get_db), _: User =
     )
     if not result["ok"]:
         raise HTTPException(404, result["error"])
+    crud.write_audit_log(db, current_user, "create", "race", str(result["race_id"]),
+                         {"venue_id": req.venue_id, "name": req.name, "distance_m": req.distance_m})
     return result
 
 
@@ -952,6 +1076,7 @@ def list_races(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
         "races": [
             {
                 "race_id": r.id,
+                "name": r.name,
                 "venue_id": r.venue_id,
                 "race_date": r.race_date.isoformat() if r.race_date else None,
                 "distance_m": r.distance_m,
@@ -970,6 +1095,7 @@ def get_race(race_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, f"Race {race_id} not found")
     return {
         "race_id": race.id,
+        "name": race.name,
         "venue_id": race.venue_id,
         "race_date": race.race_date.isoformat() if race.race_date else None,
         "distance_m": race.distance_m,
@@ -1015,7 +1141,7 @@ def persist_race(
     race_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Persist the active in-memory tracker's results to the database race record.
@@ -1043,17 +1169,19 @@ def persist_race(
         venue_name = "Unknown"
         distance_furlongs = 0.0
 
-    completed_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     gs_results = gatesmart.build_gatesmart_results(tracker_state)
     payload = gatesmart.build_race_webhook_payload(
         race_id=str(race_id),
         venue_name=venue_name,
-        race_name=f"Race {race_id}",
+        race_name=race.name if race and race.name else f"Race {race_id}",
         distance_furlongs=distance_furlongs,
         completed_at=completed_at,
         results=gs_results,
     )
     background_tasks.add_task(gatesmart.fire_race_webhook, payload)
+    crud.write_audit_log(db, current_user, "persist", "race", str(race_id),
+                         {"persisted": result.get("persisted")})
 
     return result
 

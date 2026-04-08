@@ -10,7 +10,10 @@ and looked up in the database.
 
 import hashlib
 import secrets
+import threading
+import time
 import uuid
+from collections import defaultdict
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -22,6 +25,30 @@ from app.database import get_db
 from app.models import ApiKey, User
 from app import crud
 from app.auth import decode_token
+
+# ------------------------------------------------------------------ #
+# In-memory rate limiter (rolling 60s window per API key)
+# ------------------------------------------------------------------ #
+
+_rate_lock = threading.Lock()
+_rate_windows: dict[str, list[float]] = defaultdict(list)   # key_id -> [timestamps]
+_WINDOW_SECONDS = 60
+
+
+def _check_rate_limit(key: ApiKey) -> None:
+    """Raise HTTP 429 if the key has exceeded its rate limit. No-op if no limit set."""
+    if not key.rate_limit_per_minute:
+        return
+    now = time.monotonic()
+    cutoff = now - _WINDOW_SECONDS
+    with _rate_lock:
+        window = _rate_windows[key.id]
+        # Purge timestamps outside the rolling window
+        while window and window[0] < cutoff:
+            window.pop(0)
+        if len(window) >= key.rate_limit_per_minute:
+            raise HTTPException(status_code=429, detail={"error": "rate limit exceeded"})
+        window.append(now)
 
 router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 
@@ -69,10 +96,11 @@ def get_api_key(
     x_api_key: str = Header(..., alias="X-API-Key"),
     db: Session = Depends(get_db),
 ) -> ApiKey:
-    """Validate X-API-Key header; raises 401 on failure."""
+    """Validate X-API-Key header; raises 401 on failure, 429 if rate limit exceeded."""
     api_key = _get_key_by_hash(db, x_api_key)
     if not api_key or not api_key.is_active:
         raise HTTPException(status_code=401, detail="Invalid or inactive API key")
+    _check_rate_limit(api_key)
     return api_key
 
 
@@ -96,6 +124,7 @@ def require_jwt_or_api_key(
     if x_api_key is not None:
         api_key = _get_key_by_hash(db, x_api_key)
         if api_key and api_key.is_active:
+            _check_rate_limit(api_key)
             return
         raise HTTPException(status_code=401, detail="Invalid or inactive API key")
 
@@ -132,6 +161,7 @@ def _require_admin(current_user: User) -> None:
 
 class CreateApiKeyRequest(BaseModel):
     name: str
+    rate_limit_per_minute: Optional[int] = None
 
 
 # ------------------------------------------------------------------ #
@@ -152,6 +182,7 @@ def create_api_key(
         key_hash=_hash_key(raw_key),
         name=req.name,
         is_active=True,
+        rate_limit_per_minute=req.rate_limit_per_minute,
     )
     db.add(api_key)
     db.commit()
@@ -161,6 +192,7 @@ def create_api_key(
         "name": api_key.name,
         "key": raw_key,   # returned once only — never stored in plaintext
         "created_at": api_key.created_at.isoformat() if api_key.created_at else None,
+        "rate_limit_per_minute": api_key.rate_limit_per_minute,
     }
 
 
@@ -177,6 +209,7 @@ def list_api_keys(
             "name": k.name,
             "created_at": k.created_at.isoformat() if k.created_at else None,
             "is_active": k.is_active,
+            "rate_limit_per_minute": k.rate_limit_per_minute,
         }
         for k in keys
     ]

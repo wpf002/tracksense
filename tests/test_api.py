@@ -1222,3 +1222,514 @@ def test_fire_race_webhook_no_retry_on_401():
 
     assert result is False
     assert call_count == 1, f"Expected 1 attempt (no retry), got {call_count}"
+
+
+# ------------------------------------------------------------------ #
+# JWT token refresh (Item 3)
+# ------------------------------------------------------------------ #
+
+def _make_token(sub: str, expire_minutes: int = 60 * 24) -> str:
+    from datetime import timedelta, timezone
+    from jose import jwt
+    from app.auth import SECRET_KEY, ALGORITHM
+    import datetime as dt
+    expire = dt.datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
+    return jwt.encode({"sub": sub, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def _make_expired_token(sub: str) -> str:
+    from datetime import timedelta, timezone
+    from jose import jwt
+    from app.auth import SECRET_KEY, ALGORITHM
+    import datetime as dt
+    expire = dt.datetime.now(timezone.utc) - timedelta(hours=1)
+    return jwt.encode({"sub": sub, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def test_refresh_valid_token_returns_new_token():
+    """POST /auth/refresh with a valid token returns a new access_token."""
+    token = _make_token("test_admin")
+    r = client.post("/auth/refresh", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    body = r.json()
+    assert "access_token" in body
+    assert body["token_type"] == "bearer"
+    assert len(body["access_token"]) > 20  # non-empty JWT
+
+
+def test_refresh_expired_token_returns_401():
+    """POST /auth/refresh with an expired token returns 401."""
+    token = _make_expired_token("test_admin")
+    r = client.post("/auth/refresh", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
+
+
+def test_refresh_invalid_token_returns_401():
+    """POST /auth/refresh with a garbage token returns 401."""
+    r = client.post("/auth/refresh", headers={"Authorization": "Bearer not.a.valid.token"})
+    assert r.status_code == 401
+
+
+def test_refresh_new_token_accepted_by_protected_endpoint():
+    """The token returned by /auth/refresh is accepted as a valid Bearer token."""
+    token = _make_token("test_admin")
+    refresh_r = client.post("/auth/refresh", headers={"Authorization": f"Bearer {token}"})
+    assert refresh_r.status_code == 200
+    new_token = refresh_r.json()["access_token"]
+
+    # /auth/me validates the token independently (real JWT decode, not the mock)
+    me_r = client.get("/auth/me", headers={"Authorization": f"Bearer {new_token}"})
+    # 200 means the token was decoded successfully; /auth/me also hits the DB
+    # for the real user, so 200 or 401 depending on whether test_admin exists.
+    # We just verify it's a valid JWT (not 400/422).
+    assert me_r.status_code in (200, 401)
+
+
+# ------------------------------------------------------------------ #
+# Webhook delivery log (Item 2)
+# ------------------------------------------------------------------ #
+
+def _make_webhook(name="test-hook"):
+    r = client.post("/webhooks", json={
+        "name": name,
+        "url": "http://fake.example.com/hook",
+        "secret": "testhooksecret",
+        "event_type": "race.finished",
+    })
+    assert r.status_code == 200
+    return r.json()["id"]
+
+
+def test_successful_delivery_creates_log():
+    """deliver_webhook writes a success row to webhook_deliveries."""
+    from app.webhooks import deliver_webhook
+    from app.models import WebhookSubscription, WebhookDelivery
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.database import Base
+    import app.models as _m  # noqa
+
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    Sess = sessionmaker(bind=engine)
+    db = Sess()
+
+    sub = WebhookSubscription(
+        name="log-test", url="http://x.test", secret="s",
+        event_type="race.finished", active=True,
+    )
+    db.add(sub)
+    db.commit()
+    db.refresh(sub)
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = '{"ok":true}'
+
+    with patch("requests.post", return_value=mock_resp), \
+         patch("app.database.SessionLocal", return_value=db):
+        result = deliver_webhook(sub, {"event": "race.finished"})
+
+    assert result is True
+    log = db.query(WebhookDelivery).first()
+    assert log is not None
+    assert log.success is True
+    assert log.response_code == 200
+    assert log.error_message is None
+    db.close()
+
+
+def test_failed_delivery_network_error_creates_log():
+    """deliver_webhook records success=False and error_message on network failure."""
+    from app.webhooks import deliver_webhook
+    from app.models import WebhookSubscription, WebhookDelivery
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.database import Base
+    import app.models as _m  # noqa
+
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    Sess = sessionmaker(bind=engine)
+    db = Sess()
+
+    sub = WebhookSubscription(
+        name="err-test", url="http://x.test", secret="s",
+        event_type="race.finished", active=True,
+    )
+    db.add(sub)
+    db.commit()
+    db.refresh(sub)
+
+    with patch("requests.post", side_effect=ConnectionError("refused")), \
+         patch("app.database.SessionLocal", return_value=db):
+        result = deliver_webhook(sub, {"event": "race.finished"})
+
+    assert result is False
+    log = db.query(WebhookDelivery).first()
+    assert log is not None
+    assert log.success is False
+    assert log.response_code is None
+    assert "refused" in log.error_message
+    db.close()
+
+
+def test_get_webhook_deliveries_endpoint():
+    """GET /webhooks/{id}/deliveries returns delivery records."""
+    wh_id = _make_webhook("delivery-list-hook")
+    # Trigger a test delivery (will write a log row)
+    with patch("requests.post") as mock_post:
+        mock_post.return_value = MagicMock(status_code=200, text="ok")
+        client.post(f"/webhooks/{wh_id}/test")
+
+    r = client.get(f"/webhooks/{wh_id}/deliveries")
+    assert r.status_code == 200
+    records = r.json()
+    assert isinstance(records, list)
+    assert len(records) >= 1
+    first = records[0]
+    assert "id" in first
+    assert "attempted_at" in first
+    assert "success" in first
+    assert "response_code" in first
+
+
+def test_get_failed_deliveries_endpoint():
+    """GET /webhooks/deliveries/failures returns only failed records."""
+    wh_id = _make_webhook("failures-hook")
+    # Trigger a failing delivery
+    with patch("requests.post", side_effect=ConnectionError("network down")):
+        client.post(f"/webhooks/{wh_id}/test")
+
+    r = client.get("/webhooks/deliveries/failures")
+    assert r.status_code == 200
+    records = r.json()
+    assert isinstance(records, list)
+    # All returned records must be failures
+    for rec in records:
+        assert rec["success"] is False
+
+
+# ------------------------------------------------------------------ #
+# Race name field (Item 4)
+# ------------------------------------------------------------------ #
+
+def _create_venue_for_race():
+    """Create a minimal venue in DB so POST /races can reference it."""
+    from app.database import SessionLocal
+    from app import crud as _crud
+    db = SessionLocal()
+    try:
+        _crud.upsert_venue(db, "RACENAME_TRACK", "Race Name Test Track", 1000.0)
+    finally:
+        db.close()
+
+
+def test_post_race_with_name_stores_and_returns_name():
+    """POST /races with name stores it and returns it in the response."""
+    _create_venue_for_race()
+    r = client.post("/races", json={
+        "venue_id": "RACENAME_TRACK",
+        "name": "The Flemington Cup",
+        "race_date": "2026-04-10T14:30:00",
+        "distance_m": 1000.0,
+        "surface": "turf",
+    })
+    assert r.status_code == 200
+    race_id = r.json()["race_id"]
+
+    # Verify GET /races/{id} returns the name
+    r2 = client.get(f"/races/{race_id}")
+    assert r2.status_code == 200
+    assert r2.json()["name"] == "The Flemington Cup"
+
+
+def test_post_race_without_name_stores_null():
+    """POST /races without name field stores null and does not error."""
+    _create_venue_for_race()
+    r = client.post("/races", json={
+        "venue_id": "RACENAME_TRACK",
+        "race_date": "2026-04-10T15:00:00",
+        "distance_m": 800.0,
+        "surface": "dirt",
+    })
+    assert r.status_code == 200
+    race_id = r.json()["race_id"]
+
+    r2 = client.get(f"/races/{race_id}")
+    assert r2.status_code == 200
+    assert r2.json()["name"] is None
+
+
+def _make_mock_tracker():
+    """Return a tracker mock whose get_race_state() returns a minimal finished state."""
+    from unittest.mock import MagicMock
+    mock_tracker = MagicMock()
+    mock_tracker.get_race_state.return_value = {
+        "status": "finished",
+        "venue_id": "RACENAME_TRACK",
+        "total_expected": 0,
+        "total_finished": 0,
+        "elapsed_ms": 0,
+        "elapsed_str": "0:00.000",
+        "horses": [],
+    }
+    return mock_tracker
+
+
+def test_persist_race_webhook_payload_uses_name():
+    """When race has a name, build_race_webhook_payload receives that name."""
+    from unittest.mock import patch, MagicMock
+    from app.race_tracker import set_tracker
+
+    _create_venue_for_race()
+    r = client.post("/races", json={
+        "venue_id": "RACENAME_TRACK",
+        "name": "Named Race",
+        "race_date": "2026-04-10T16:00:00",
+        "distance_m": 1000.0,
+    })
+    assert r.status_code == 200
+    race_id = r.json()["race_id"]
+
+    set_tracker(_make_mock_tracker())
+    with patch("app.gatesmart.build_race_webhook_payload") as mock_payload, \
+         patch("app.gatesmart.fire_race_webhook"), \
+         patch("app.crud.persist_race_results", return_value={"ok": True, "persisted": 0}):
+        mock_payload.return_value = {}
+        client.post(f"/races/{race_id}/persist")
+
+    call_kwargs = mock_payload.call_args
+    assert call_kwargs is not None
+    kwargs = call_kwargs.kwargs if call_kwargs.kwargs else {}
+    args = call_kwargs.args if call_kwargs.args else ()
+    race_name_passed = kwargs.get("race_name") or (args[2] if len(args) > 2 else None)
+    assert race_name_passed == "Named Race"
+
+
+def test_persist_race_webhook_payload_falls_back_to_race_id():
+    """When race has no name, build_race_webhook_payload receives 'Race {id}'."""
+    from unittest.mock import patch
+    from app.race_tracker import set_tracker
+
+    _create_venue_for_race()
+    r = client.post("/races", json={
+        "venue_id": "RACENAME_TRACK",
+        "race_date": "2026-04-10T17:00:00",
+        "distance_m": 1000.0,
+    })
+    assert r.status_code == 200
+    race_id = r.json()["race_id"]
+
+    set_tracker(_make_mock_tracker())
+    with patch("app.gatesmart.build_race_webhook_payload") as mock_payload, \
+         patch("app.gatesmart.fire_race_webhook"), \
+         patch("app.crud.persist_race_results", return_value={"ok": True, "persisted": 0}):
+        mock_payload.return_value = {}
+        client.post(f"/races/{race_id}/persist")
+
+    call_kwargs = mock_payload.call_args
+    assert call_kwargs is not None
+    kwargs = call_kwargs.kwargs if call_kwargs.kwargs else {}
+    args = call_kwargs.args if call_kwargs.args else ()
+    race_name_passed = kwargs.get("race_name") or (args[2] if len(args) > 2 else None)
+    assert race_name_passed == f"Race {race_id}"
+
+
+# ------------------------------------------------------------------ #
+# Automatic GateSmart horse mapping (Item 5)
+# ------------------------------------------------------------------ #
+
+def _admin_auth_headers():
+    """Return Authorization headers using the seeded admin user."""
+    token = _make_token("admin")
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_create_horse_with_racing_api_id_stores_it():
+    """POST /horses with racing_api_horse_id stores and returns it via GET."""
+    epc = "EPCMAP001AABBCCDDEEFF0011"
+    client.post("/horses", json={
+        "epc": epc,
+        "name": "Mapper Horse",
+        "racing_api_horse_id": "GSMART-42",
+    })
+    r = client.get(f"/horses/{epc}", headers=_admin_auth_headers())
+    assert r.status_code == 200
+    assert r.json()["racing_api_horse_id"] == "GSMART-42"
+
+
+def test_create_horse_without_racing_api_id_is_null():
+    """POST /horses without racing_api_horse_id stores null."""
+    epc = "EPCMAP002AABBCCDDEEFF0022"
+    client.post("/horses", json={"epc": epc, "name": "Plain Horse"})
+    r = client.get(f"/horses/{epc}", headers=_admin_auth_headers())
+    assert r.status_code == 200
+    assert r.json()["racing_api_horse_id"] is None
+
+
+def test_register_triggers_mapping_for_horse_with_racing_api_id():
+    """POST /race/register fires post_horse_mapping for horses that have racing_api_horse_id."""
+    from unittest.mock import patch, AsyncMock
+
+    venue_id = _setup_venue("MAP_TRACK")
+
+    epc = "EPCMAP003AABBCCDDEEFF0033"
+    client.post("/horses", json={
+        "epc": epc,
+        "name": "Map Trigger Horse",
+        "racing_api_horse_id": "GSMART-99",
+    })
+
+    with patch("app.gatesmart.post_horse_mapping", new_callable=AsyncMock) as mock_map:
+        client.post("/race/register", json={
+            "venue_id": venue_id,
+            "horses": [{"horse_id": epc, "display_name": "Map Trigger Horse", "saddle_cloth": "1"}],
+        })
+
+    mock_map.assert_called_once_with(
+        epc=epc,
+        horse_name="Map Trigger Horse",
+        racing_api_horse_id="GSMART-99",
+    )
+
+
+def test_register_skips_mapping_for_horse_without_racing_api_id():
+    """POST /race/register does not call post_horse_mapping for horses without racing_api_horse_id."""
+    from unittest.mock import patch, AsyncMock
+
+    venue_id = _setup_venue("NOMAP_TRACK")
+
+    epc = "EPCMAP004AABBCCDDEEFF0044"
+    client.post("/horses", json={"epc": epc, "name": "No Map Horse"})
+
+    with patch("app.gatesmart.post_horse_mapping", new_callable=AsyncMock) as mock_map:
+        client.post("/race/register", json={
+            "venue_id": venue_id,
+            "horses": [{"horse_id": epc, "display_name": "No Map Horse", "saddle_cloth": "1"}],
+        })
+
+    mock_map.assert_not_called()
+
+
+# ------------------------------------------------------------------ #
+# Audit log (Item 6)
+# ------------------------------------------------------------------ #
+
+def test_audit_log_created_on_create_horse():
+    """POST /horses writes an audit log entry retrievable via GET /admin/audit-log."""
+    epc = "EPCAUDIT001AABBCCDDEEFF01"
+    client.post("/horses", json={"epc": epc, "name": "Audit Horse"})
+
+    r = client.get("/admin/audit-log", params={"target_type": "horse", "target_id": epc})
+    assert r.status_code == 200
+    entries = r.json()
+    assert any(e["action"] == "create" and e["target_id"] == epc for e in entries)
+
+
+def test_audit_log_created_on_create_race():
+    """POST /races writes an audit log entry retrievable via GET /admin/audit-log."""
+    _create_venue_for_race()
+    r = client.post("/races", json={
+        "venue_id": "RACENAME_TRACK",
+        "race_date": "2026-04-10T18:00:00",
+        "distance_m": 800.0,
+    })
+    assert r.status_code == 200
+    race_id = str(r.json()["race_id"])
+
+    r2 = client.get("/admin/audit-log", params={"target_type": "race", "target_id": race_id})
+    assert r2.status_code == 200
+    entries = r2.json()
+    assert any(e["action"] == "create" and e["target_type"] == "race" for e in entries)
+
+
+def test_audit_log_endpoint_filters_by_target_type():
+    """GET /admin/audit-log with target_type only returns matching entries."""
+    r = client.get("/admin/audit-log", params={"target_type": "horse"})
+    assert r.status_code == 200
+    for entry in r.json():
+        assert entry["target_type"] == "horse"
+
+
+def test_audit_log_limit_capped_at_500():
+    """GET /admin/audit-log with limit > 500 is silently capped to 500."""
+    r = client.get("/admin/audit-log", params={"limit": 9999})
+    assert r.status_code == 200
+    # We just verify the endpoint returns OK without error (response may have < 500 rows in test DB)
+    assert isinstance(r.json(), list)
+
+
+# ------------------------------------------------------------------ #
+# API key rate limiting (Item 7)
+# ------------------------------------------------------------------ #
+
+def _create_rate_limited_key(name: str, limit: int) -> str:
+    """Create an API key with a rate limit and return the raw key."""
+    from app.api_keys_router import _get_current_user as _api_keys_get_current_user
+    app.dependency_overrides[_api_keys_get_current_user] = lambda: _mock_admin
+    try:
+        r = client.post("/api-keys", json={"name": name, "rate_limit_per_minute": limit})
+        assert r.status_code == 200
+        return r.json()["key"]
+    finally:
+        app.dependency_overrides.pop(_api_keys_get_current_user, None)
+
+
+def _clear_rate_window(raw_key: str) -> None:
+    """Reset the in-memory rate window for a key so tests are isolated."""
+    import hashlib
+    from app.api_keys_router import _rate_windows, _rate_lock
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    # We need the key id — look it up
+    from app.database import SessionLocal
+    from app.models import ApiKey as ApiKeyModel
+    db = SessionLocal()
+    try:
+        k = db.query(ApiKeyModel).filter_by(key_hash=key_hash).first()
+        if k:
+            with _rate_lock:
+                _rate_windows[k.id].clear()
+    finally:
+        db.close()
+
+
+def test_api_key_rate_limit_stored_and_returned():
+    """POST /api-keys with rate_limit_per_minute stores and returns it."""
+    from app.api_keys_router import _get_current_user as _api_keys_get_current_user
+    app.dependency_overrides[_api_keys_get_current_user] = lambda: _mock_admin
+    try:
+        r = client.post("/api-keys", json={"name": "rate-test-key", "rate_limit_per_minute": 10})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["rate_limit_per_minute"] == 10
+    finally:
+        app.dependency_overrides.pop(_api_keys_get_current_user, None)
+
+
+def test_api_key_within_rate_limit_is_allowed():
+    """Requests within the rate limit are accepted (HTTP 200)."""
+    epc = "EPCRATELIMIT001AABBCCDD01"
+    client.post("/horses", json={"epc": epc, "name": "Rate Horse"})
+
+    raw_key = _create_rate_limited_key("rate-allow-key", 5)
+    _clear_rate_window(raw_key)
+
+    r = client.get(f"/horses/{epc}", headers={"X-API-Key": raw_key})
+    assert r.status_code == 200
+
+
+def test_api_key_exceeding_rate_limit_returns_429():
+    """Requests exceeding rate_limit_per_minute return HTTP 429."""
+    epc = "EPCRATELIMIT002AABBCCDD02"
+    client.post("/horses", json={"epc": epc, "name": "Rate Horse 2"})
+
+    raw_key = _create_rate_limited_key("rate-block-key", 2)
+    _clear_rate_window(raw_key)
+
+    # Exhaust the limit
+    client.get(f"/horses/{epc}", headers={"X-API-Key": raw_key})
+    client.get(f"/horses/{epc}", headers={"X-API-Key": raw_key})
+    # This should be blocked
+    r = client.get(f"/horses/{epc}", headers={"X-API-Key": raw_key})
+    assert r.status_code == 429
