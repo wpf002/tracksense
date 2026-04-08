@@ -1058,3 +1058,167 @@ def test_api_key_deactivate_not_found():
         assert r.status_code == 404
     finally:
         app.dependency_overrides.pop(_api_keys_get_current_user, None)
+
+
+# ------------------------------------------------------------------ #
+# GateSmart integration
+# ------------------------------------------------------------------ #
+
+import asyncio
+import os
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from app import gatesmart
+
+
+def test_build_race_webhook_payload_shape():
+    """build_race_webhook_payload returns a dict with all required top-level fields."""
+    sectionals = [
+        {
+            "gate_name": "4f",
+            "gate_distance_furlongs": 4.0,
+            "split_time_ms": 49200,
+            "speed_kmh": 58.5,
+        }
+    ]
+    results = [
+        {
+            "finish_position": 1,
+            "epc": "E2004700000000000000001A",
+            "horse_name": "Test Horse",
+            "total_time_ms": 98400,
+            "sectionals": sectionals,
+        }
+    ]
+    payload = gatesmart.build_race_webhook_payload(
+        race_id="test-race-001",
+        venue_name="Test Venue",
+        race_name="Test Race",
+        distance_furlongs=8.0,
+        completed_at="2026-04-07T14:30:00Z",
+        results=results,
+    )
+
+    assert payload["race_id"] == "test-race-001"
+    assert payload["venue"] == "Test Venue"
+    assert payload["race_name"] == "Test Race"
+    assert payload["distance_furlongs"] == 8.0
+    assert payload["completed_at"] == "2026-04-07T14:30:00Z"
+    assert len(payload["results"]) == 1
+
+    r = payload["results"][0]
+    assert r["finish_position"] == 1
+    assert r["epc"] == "E2004700000000000000001A"
+    assert r["horse_name"] == "Test Horse"
+    assert r["total_time_ms"] == 98400
+    assert len(r["sectionals"]) == 1
+
+    s = r["sectionals"][0]
+    assert s["gate_name"] == "4f"
+    assert s["gate_distance_furlongs"] == 4.0
+    assert s["split_time_ms"] == 49200
+    assert s["speed_kmh"] == 58.5
+
+    # No unexpected top-level keys
+    expected_keys = {"race_id", "venue", "race_name", "distance_furlongs", "completed_at", "results"}
+    assert set(payload.keys()) == expected_keys
+
+
+def test_map_horse_to_gatesmart_returns_200_when_mapping_succeeds():
+    """POST /admin/horses/{epc}/map-to-gatesmart returns 200 when GateSmart accepts."""
+    from app import crud
+
+    mock_horse = MagicMock()
+    mock_horse.name = "Test Horse"
+
+    with patch.object(crud, "get_horse", return_value=mock_horse), \
+         patch.object(gatesmart, "post_horse_mapping", new=AsyncMock(return_value=True)):
+        r = client.post(
+            "/admin/horses/E2004700000000000000001A/map-to-gatesmart",
+            json={"racing_api_horse_id": "test-horse-001"},
+        )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mapped"] is True
+    assert body["epc"] == "E2004700000000000000001A"
+    assert body["racing_api_horse_id"] == "test-horse-001"
+
+
+def test_map_horse_to_gatesmart_returns_404_for_unknown_epc():
+    """POST /admin/horses/{epc}/map-to-gatesmart returns 404 when horse not in DB."""
+    from app import crud
+
+    with patch.object(crud, "get_horse", return_value=None):
+        r = client.post(
+            "/admin/horses/NONEXISTENTEPC/map-to-gatesmart",
+            json={"racing_api_horse_id": "some-id"},
+        )
+
+    assert r.status_code == 404
+
+
+def test_fire_race_webhook_hmac_header_format():
+    """fire_race_webhook sends a header that starts with 'sha256='."""
+    payload = {"race_id": "x", "venue": "y", "race_name": "z",
+               "distance_furlongs": 8.0, "completed_at": "2026-01-01T00:00:00Z",
+               "results": []}
+
+    captured_headers = {}
+
+    async def fake_post(url, *, content, headers, **kwargs):
+        captured_headers.update(headers)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"horses_stored": 0}
+        return mock_resp
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = fake_post
+
+    env = {
+        "GATESMART_WEBHOOK_URL": "https://fake.example.com/webhook",
+        "TRACKSENSE_WEBHOOK_SECRET": "test-secret-key",
+    }
+    with patch.dict(os.environ, env), \
+         patch("httpx.AsyncClient", return_value=mock_client):
+        result = asyncio.run(gatesmart.fire_race_webhook(payload))
+
+    assert result is True
+    sig = captured_headers.get("X-TrackSense-Signature", "")
+    assert sig.startswith("sha256="), f"Expected 'sha256=...' but got: {sig!r}"
+    assert len(sig) > len("sha256="), "Signature hex is empty"
+
+
+def test_fire_race_webhook_no_retry_on_401():
+    """fire_race_webhook returns False immediately on HTTP 401 without retrying."""
+    payload = {"race_id": "x", "venue": "y", "race_name": "z",
+               "distance_furlongs": 8.0, "completed_at": "2026-01-01T00:00:00Z",
+               "results": []}
+
+    call_count = 0
+
+    async def fake_post(url, *, content, headers, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        mock_resp = MagicMock()
+        mock_resp.status_code = 401
+        return mock_resp
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = fake_post
+
+    env = {
+        "GATESMART_WEBHOOK_URL": "https://fake.example.com/webhook",
+        "TRACKSENSE_WEBHOOK_SECRET": "test-secret-key",
+    }
+    with patch.dict(os.environ, env), \
+         patch("httpx.AsyncClient", return_value=mock_client):
+        result = asyncio.run(gatesmart.fire_race_webhook(payload))
+
+    assert result is False
+    assert call_count == 1, f"Expected 1 attempt (no retry), got {call_count}"

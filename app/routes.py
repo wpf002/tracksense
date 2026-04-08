@@ -4,11 +4,13 @@ import random
 import threading
 import time
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from typing import Optional
+
+from app import gatesmart
 
 from app.gate_registry import registry
 from app.race_tracker import (
@@ -261,6 +263,31 @@ def admin_delete_user(
     if not ok:
         raise HTTPException(status_code=404, detail="User not found")
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ #
+# Admin — GateSmart horse mapping
+# ------------------------------------------------------------------ #
+
+class MapToGatesmartRequest(BaseModel):
+    racing_api_horse_id: str
+
+
+@router.post("/admin/horses/{epc}/map-to-gatesmart")
+async def map_horse_to_gatesmart(
+    epc: str,
+    req: MapToGatesmartRequest,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    epc = epc.strip().upper()
+    horse = crud.get_horse(db, epc)
+    if not horse:
+        raise HTTPException(404, f"Horse '{epc}' not found")
+    ok = await gatesmart.post_horse_mapping(epc, horse.name, req.racing_api_horse_id)
+    if ok:
+        return {"mapped": True, "epc": epc, "racing_api_horse_id": req.racing_api_horse_id}
+    raise HTTPException(502, {"error": "GateSmart mapping failed"})
 
 
 # ------------------------------------------------------------------ #
@@ -984,12 +1011,20 @@ def get_race_results(race_id: int, db: Session = Depends(get_db), _auth=Depends(
 
 
 @router.post("/races/{race_id}/persist")
-def persist_race(race_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def persist_race(
+    race_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
     """
     Persist the active in-memory tracker's results to the database race record.
     The race record must already exist (created via POST /races).
     Horses must already exist in the horses table (POST /horses).
     This operation is idempotent — safe to call multiple times.
+
+    After a successful persist, fires the GateSmart race webhook as a
+    background task so the HTTP response is not blocked.
     """
     t = get_tracker()
     if not t:
@@ -998,6 +1033,28 @@ def persist_race(race_id: int, db: Session = Depends(get_db), _: User = Depends(
     result = crud.persist_race_results(db, race_id, tracker_state)
     if not result["ok"]:
         raise HTTPException(404, result["error"])
+
+    # Build and schedule GateSmart webhook without blocking the response
+    race = crud.get_race(db, race_id)
+    if race:
+        venue_name = race.venue.name if race.venue else race.venue_id
+        distance_furlongs = round(race.distance_m / 201.168, 4)
+    else:
+        venue_name = "Unknown"
+        distance_furlongs = 0.0
+
+    completed_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    gs_results = gatesmart.build_gatesmart_results(tracker_state)
+    payload = gatesmart.build_race_webhook_payload(
+        race_id=str(race_id),
+        venue_name=venue_name,
+        race_name=f"Race {race_id}",
+        distance_furlongs=distance_furlongs,
+        completed_at=completed_at,
+        results=gs_results,
+    )
+    background_tasks.add_task(gatesmart.fire_race_webhook, payload)
+
     return result
 
 
