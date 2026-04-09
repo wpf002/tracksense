@@ -21,6 +21,7 @@ class HorseEntry:
     horse_id: str       # UHF chip EPC
     display_name: str
     saddle_cloth: str
+    jockey: str = ""
 
 
 @dataclass
@@ -52,6 +53,7 @@ class HorseTrack:
     horse_id: str
     display_name: str
     saddle_cloth: str
+    jockey: str = ""
     events: list[GateEvent] = field(default_factory=list)
     finish_position: Optional[int] = None
 
@@ -164,6 +166,7 @@ class RaceTracker:
                     horse_id=h.horse_id,
                     display_name=h.display_name,
                     saddle_cloth=h.saddle_cloth,
+                    jockey=h.jockey,
                 )
                 self.duplicate_counts[h.horse_id] = {}
 
@@ -201,6 +204,7 @@ class RaceTracker:
                     horse_id=horse_id,
                     display_name=horse.display_name,
                     saddle_cloth=horse.saddle_cloth,
+                    jockey=horse.jockey,
                 )
                 self.duplicate_counts[horse_id] = {}
             self.finish_order.clear()
@@ -306,6 +310,7 @@ class RaceTracker:
                 "tag_id": tag_id,
                 "display_name": horse.display_name,
                 "saddle_cloth": horse.saddle_cloth,
+                "jockey": horse.jockey,
                 "reader_id": reader_id,
                 "gate_name": gate.name,
                 "distance_m": gate.distance_m,
@@ -342,6 +347,7 @@ class RaceTracker:
                     "horse_id": horse_id,
                     "display_name": track.display_name,
                     "saddle_cloth": track.saddle_cloth,
+                    "jockey": track.jockey,
                     "finish_position": track.finish_position,
                     "current_gate": track.current_position_name(),
                     "gates_passed": len(track.events),
@@ -415,6 +421,7 @@ class RaceTracker:
                     "horse_id": horse_id,
                     "display_name": track.display_name,
                     "saddle_cloth": track.saddle_cloth,
+                    "jockey": track.jockey,
                     "elapsed_ms": elapsed_ms,
                     "elapsed_str": _ms_to_str(elapsed_ms),
                     "split_ms": split_ms,

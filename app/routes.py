@@ -73,6 +73,7 @@ class HorseRegistration(BaseModel):
     horse_id: str = Field(..., description="UHF chip EPC")
     display_name: str
     saddle_cloth: str
+    jockey: str = ""
 
 
 class RegisterRequest(BaseModel):
@@ -686,6 +687,7 @@ def register_horses(
             horse_id=h.horse_id.strip().upper(),
             display_name=h.display_name,
             saddle_cloth=h.saddle_cloth,
+            jockey=h.jockey,
         )
         for h in req.horses
     ]

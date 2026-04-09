@@ -156,6 +156,11 @@ export default function RaceResults() {
       render: (row) => <span className="font-medium">{row.display_name}</span>,
     },
     {
+      key: 'jockey',
+      label: 'Jockey',
+      render: (row) => <span className="text-text-muted text-sm">{row.jockey || '—'}</span>,
+    },
+    {
       key: 'elapsed_ms',
       label: 'Time',
       render: (row) => <TimingDisplay ms={row.elapsed_ms} />,

@@ -22,7 +22,7 @@ import requests
 import threading
 from dataclasses import dataclass
 
-BACKEND_URL = "http://localhost:8000"
+BACKEND_URL = "http://localhost:8001"
 SUBMIT_URL = f"{BACKEND_URL}/tags/submit"
 REGISTER_URL = f"{BACKEND_URL}/race/register"
 ARM_URL = f"{BACKEND_URL}/race/arm"

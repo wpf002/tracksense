@@ -142,6 +142,7 @@ class RaceEntry(Base):
     race_id: Mapped[int] = mapped_column(Integer, ForeignKey("races.id"), nullable=False)
     horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False)
     saddle_cloth: Mapped[str] = mapped_column(String, nullable=False)
+    jockey: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
     race: Mapped["Race"] = relationship("Race", back_populates="entries")
     horse: Mapped["Horse"] = relationship("Horse", back_populates="race_entries")

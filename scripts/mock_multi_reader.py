@@ -4,29 +4,49 @@ import random
 import requests
 import threading
 
-BACKEND_URL = "http://localhost:8000"
+BACKEND_URL = "http://localhost:8001"
+
+# Authenticated session — populated by login() at startup
+_session = requests.Session()
+
+
+def login(username: str = "admin", password: str = "tracksense"):
+    """Log in and attach Bearer token to the shared session."""
+    r = requests.post(f"{BACKEND_URL}/auth/login", json={"username": username, "password": password})
+    r.raise_for_status()
+    token = r.json()["access_token"]
+    _session.headers.update({"Authorization": f"Bearer {token}"})
+    print(f"[mock] Authenticated as '{username}'.")
+
+JOCKEYS = [
+    "John Velazquez",   "Frankie Dettori",  "Irad Ortiz Jr.",   "Ryan Moore",
+    "Javier Castellano","Joel Rosario",     "Mike Smith",       "Victor Espinoza",
+    "Luis Saez",        "Flavien Prat",     "William Buick",    "Oisin Murphy",
+    "James McDonald",   "Christophe Soumillon", "Gary Stevens", "Pat Day",
+    "Tyler Gaffalione", "Rafael Bejarano",  "Corey Nakatani",   "Mickael Barzalona",
+]
 
 HORSES = [
-    {"horse_id": "E200681100000001AABB0001", "display_name": "Thunderstrike",    "saddle_cloth": "1",  "profile": "pacer"},
-    {"horse_id": "E200681100000001AABB0002", "display_name": "Iron Duchess",      "saddle_cloth": "2",  "profile": "closer"},
-    {"horse_id": "E200681100000001AABB0003", "display_name": "Crimson Tempo",     "saddle_cloth": "3",  "profile": "pacer"},
-    {"horse_id": "E200681100000001AABB0004", "display_name": "Silent Verdict",    "saddle_cloth": "4",  "profile": "midfield"},
-    {"horse_id": "E200681100000001AABB0005", "display_name": "Pale Monarch",      "saddle_cloth": "5",  "profile": "closer"},
-    {"horse_id": "E200681100000001AABB0006", "display_name": "Westward Bound",    "saddle_cloth": "6",  "profile": "midfield"},
-    {"horse_id": "E200681100000001AABB0007", "display_name": "Night Protocol",    "saddle_cloth": "7",  "profile": "pacer"},
-    {"horse_id": "E200681100000001AABB0008", "display_name": "Ember Ridge",       "saddle_cloth": "8",  "profile": "midfield"},
-    {"horse_id": "E200681100000001AABB0009", "display_name": "Gold Inference",    "saddle_cloth": "9",  "profile": "closer"},
-    {"horse_id": "E200681100000001AABB000A", "display_name": "Saltwind Glory",    "saddle_cloth": "10", "profile": "midfield"},
-    {"horse_id": "E200681100000001AABB000B", "display_name": "Carrion Comfort",   "saddle_cloth": "11", "profile": "pacer"},
-    {"horse_id": "E200681100000001AABB000C", "display_name": "River Oath",        "saddle_cloth": "12", "profile": "closer"},
-    {"horse_id": "E200681100000001AABB000D", "display_name": "Desert Patience",   "saddle_cloth": "13", "profile": "midfield"},
-    {"horse_id": "E200681100000001AABB000E", "display_name": "The Long Shadow",   "saddle_cloth": "14", "profile": "closer"},
-    {"horse_id": "E200681100000001AABB000F", "display_name": "Forged in Dust",    "saddle_cloth": "15", "profile": "pacer"},
-    {"horse_id": "E200681100000001AABB0010", "display_name": "Lady Contention",   "saddle_cloth": "16", "profile": "midfield"},
-    {"horse_id": "E200681100000001AABB0011", "display_name": "Copper Writ",       "saddle_cloth": "17", "profile": "closer"},
-    {"horse_id": "E200681100000001AABB0012", "display_name": "Northern Clause",   "saddle_cloth": "18", "profile": "midfield"},
-    {"horse_id": "E200681100000001AABB0013", "display_name": "Mirefall",          "saddle_cloth": "19", "profile": "pacer"},
-    {"horse_id": "E200681100000001AABB0014", "display_name": "Last Argument",     "saddle_cloth": "20", "profile": "closer"},
+    {"horse_id": "E200681100000001AABB0001", "display_name": "Secretariat",       "saddle_cloth": "1",  "profile": "pacer",    "jockey": "Ron Turcotte"},
+    {"horse_id": "E200681100000001AABB0002", "display_name": "Winx",              "saddle_cloth": "2",  "profile": "closer",   "jockey": "Hugh Bowman"},
+    {"horse_id": "E200681100000001AABB0003", "display_name": "Frankel",           "saddle_cloth": "3",  "profile": "pacer",    "jockey": "Tom Queally"},
+    {"horse_id": "E200681100000001AABB0004", "display_name": "Black Caviar",      "saddle_cloth": "4",  "profile": "pacer",    "jockey": "Luke Nolen"},
+    {"horse_id": "E200681100000001AABB0005", "display_name": "American Pharoah",  "saddle_cloth": "5",  "profile": "midfield", "jockey": "Victor Espinoza"},
+    {"horse_id": "E200681100000001AABB0006", "display_name": "Justify",           "saddle_cloth": "6",  "profile": "midfield", "jockey": "Mike Smith"},
+    {"horse_id": "E200681100000001AABB0007", "display_name": "Zenyatta",          "saddle_cloth": "7",  "profile": "closer",   "jockey": "Mike Smith"},
+    {"horse_id": "E200681100000001AABB0008", "display_name": "Enable",            "saddle_cloth": "8",  "profile": "closer",   "jockey": "Frankie Dettori"},
+    {"horse_id": "E200681100000001AABB0009", "display_name": "Sea The Stars",     "saddle_cloth": "9",  "profile": "midfield", "jockey": "Mick Kinane"},
+    {"horse_id": "E200681100000001AABB000A", "display_name": "Deep Impact",       "saddle_cloth": "10", "profile": "closer",   "jockey": "Yutaka Take"},
+    {"horse_id": "E200681100000001AABB000B", "display_name": "Arrogate",          "saddle_cloth": "11", "profile": "closer",   "jockey": "Mike Smith"},
+    {"horse_id": "E200681100000001AABB000C", "display_name": "Flightline",        "saddle_cloth": "12", "profile": "pacer",    "jockey": "Flavien Prat"},
+    {"horse_id": "E200681100000001AABB000D", "display_name": "Curlin",            "saddle_cloth": "13", "profile": "midfield", "jockey": "Robby Albarado"},
+    {"horse_id": "E200681100000001AABB000E", "display_name": "Rachel Alexandra",  "saddle_cloth": "14", "profile": "closer",   "jockey": "Calvin Borel"},
+    {"horse_id": "E200681100000001AABB000F", "display_name": "California Chrome", "saddle_cloth": "15", "profile": "midfield", "jockey": "Victor Espinoza"},
+    {"horse_id": "E200681100000001AABB0010", "display_name": "Gun Runner",        "saddle_cloth": "16", "profile": "pacer",    "jockey": "Florent Geroux"},
+    {"horse_id": "E200681100000001AABB0011", "display_name": "Beholder",          "saddle_cloth": "17", "profile": "closer",   "jockey": "Gary Stevens"},
+    {"horse_id": "E200681100000001AABB0012", "display_name": "Songbird",          "saddle_cloth": "18", "profile": "midfield", "jockey": "Mike Smith"},
+    {"horse_id": "E200681100000001AABB0013", "display_name": "Golden Sixty",      "saddle_cloth": "19", "profile": "closer",   "jockey": "Vincent Ho"},
+    {"horse_id": "E200681100000001AABB0014", "display_name": "Equinox",           "saddle_cloth": "20", "profile": "midfield", "jockey": "Christophe Soumillon"},
 ]
 
 # Track gates: (reader_id, name, distance_m, is_finish)
@@ -104,7 +124,7 @@ def wait_for_backend(retries: int = 15, delay: float = 1.0) -> bool:
 def setup_venue():
     """Create the venue and gates via the API."""
     # Create venue
-    r = requests.post(f"{BACKEND_URL}/venues", json={
+    r = _session.post(f"{BACKEND_URL}/venues", json={
         "venue_id": VENUE_ID,
         "name": "Mock Race Track",
         "total_distance_m": 1609.0,
@@ -114,7 +134,7 @@ def setup_venue():
 
     # Add gates
     for reader_id, name, distance_m, is_finish in GATES:
-        r = requests.post(f"{BACKEND_URL}/venues/{VENUE_ID}/gates", json={
+        r = _session.post(f"{BACKEND_URL}/venues/{VENUE_ID}/gates", json={
             "reader_id": reader_id,
             "name": name,
             "distance_m": distance_m,
@@ -128,10 +148,10 @@ def setup_venue():
 
 
 def register_field():
-    r = requests.post(f"{BACKEND_URL}/race/register", json={
+    r = _session.post(f"{BACKEND_URL}/race/register", json={
         "venue_id": VENUE_ID,
         "horses": [
-            {"horse_id": h["horse_id"], "display_name": h["display_name"], "saddle_cloth": h["saddle_cloth"]}
+            {"horse_id": h["horse_id"], "display_name": h["display_name"], "saddle_cloth": h["saddle_cloth"], "jockey": h.get("jockey", "")}
             for h in HORSES
         ],
     })
@@ -140,12 +160,12 @@ def register_field():
 
 
 def arm():
-    requests.post(f"{BACKEND_URL}/race/arm").raise_for_status()
+    _session.post(f"{BACKEND_URL}/race/arm").raise_for_status()
     print("[mock] Race armed.")
 
 
 def emit_tag(tag_id: str, reader_id: str) -> dict:
-    r = requests.post(f"{BACKEND_URL}/tags/submit", json={
+    r = _session.post(f"{BACKEND_URL}/tags/submit", json={
         "tag_id": tag_id,
         "reader_id": reader_id,
     }, timeout=3)
@@ -208,7 +228,7 @@ def simulate_race():
 
 def print_results():
     time.sleep(0.5)
-    r = requests.get(f"{BACKEND_URL}/race/state")
+    r = _session.get(f"{BACKEND_URL}/race/state")
     data = r.json()
 
     print("\n[mock] ========== FINISH ORDER ==========")
@@ -234,6 +254,7 @@ def run():
         print("[mock] ERROR: Backend never came up.")
         return
 
+    login()
     setup_venue()
     register_field()
     arm()

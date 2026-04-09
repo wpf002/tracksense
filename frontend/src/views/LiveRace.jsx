@@ -296,6 +296,13 @@ export default function LiveRace() {
       ),
     },
     {
+      key: 'jockey',
+      label: 'Jockey',
+      render: (row) => (
+        <span className="text-text-muted text-sm">{row.jockey || '—'}</span>
+      ),
+    },
+    {
       key: 'current_gate',
       label: 'Last Gate',
       render: (row) => (
