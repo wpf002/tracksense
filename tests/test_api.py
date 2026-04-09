@@ -1378,37 +1378,41 @@ def test_failed_delivery_network_error_creates_log():
 def test_get_webhook_deliveries_endpoint():
     """GET /webhooks/{id}/deliveries returns delivery records."""
     wh_id = _make_webhook("delivery-list-hook")
-    # Trigger a test delivery (will write a log row)
-    with patch("requests.post") as mock_post:
-        mock_post.return_value = MagicMock(status_code=200, text="ok")
-        client.post(f"/webhooks/{wh_id}/test")
+    try:
+        with patch("requests.post") as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, text="ok")
+            client.post(f"/webhooks/{wh_id}/test")
 
-    r = client.get(f"/webhooks/{wh_id}/deliveries")
-    assert r.status_code == 200
-    records = r.json()
-    assert isinstance(records, list)
-    assert len(records) >= 1
-    first = records[0]
-    assert "id" in first
-    assert "attempted_at" in first
-    assert "success" in first
-    assert "response_code" in first
+        r = client.get(f"/webhooks/{wh_id}/deliveries")
+        assert r.status_code == 200
+        records = r.json()
+        assert isinstance(records, list)
+        assert len(records) >= 1
+        first = records[0]
+        assert "id" in first
+        assert "attempted_at" in first
+        assert "success" in first
+        assert "response_code" in first
+    finally:
+        client.delete(f"/webhooks/{wh_id}")
 
 
 def test_get_failed_deliveries_endpoint():
     """GET /webhooks/deliveries/failures returns only failed records."""
     wh_id = _make_webhook("failures-hook")
-    # Trigger a failing delivery
-    with patch("requests.post", side_effect=ConnectionError("network down")):
-        client.post(f"/webhooks/{wh_id}/test")
+    try:
+        with patch("requests.post", side_effect=ConnectionError("network down")):
+            client.post(f"/webhooks/{wh_id}/test")
 
-    r = client.get("/webhooks/deliveries/failures")
-    assert r.status_code == 200
-    records = r.json()
-    assert isinstance(records, list)
-    # All returned records must be failures
-    for rec in records:
-        assert rec["success"] is False
+        r = client.get("/webhooks/deliveries/failures")
+        assert r.status_code == 200
+        records = r.json()
+        assert isinstance(records, list)
+        # All returned records must be failures
+        for rec in records:
+            assert rec["success"] is False
+    finally:
+        client.delete(f"/webhooks/{wh_id}")
 
 
 # ------------------------------------------------------------------ #
