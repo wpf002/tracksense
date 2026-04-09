@@ -28,6 +28,7 @@ _mock_admin.hashed_password = "x"
 _mock_admin.role = "admin"
 _mock_admin.full_name = "Test Admin"
 _mock_admin.active = True
+_mock_admin.tenant_id = None  # super-admin: no tenant scoping
 
 app.dependency_overrides[get_current_user] = lambda: _mock_admin
 

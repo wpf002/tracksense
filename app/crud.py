@@ -22,7 +22,7 @@ from app.models import (
     Horse, Owner, Trainer, VenueRecord, GateRecord,
     Race, RaceEntry, GateRead, RaceResult, VetRecord,
     WorkoutRecord, CheckInRecord, TestBarnRecord, User,
-    AuditLog, WebhookDelivery,
+    AuditLog, WebhookDelivery, Tenant,
 )
 from app.auth import hash_password, verify_password
 
@@ -62,8 +62,11 @@ def get_horse(db: Session, epc: str) -> Optional[Horse]:
     return db.get(Horse, epc)
 
 
-def list_horses(db: Session, skip: int = 0, limit: int = 100) -> list[Horse]:
-    return db.query(Horse).offset(skip).limit(limit).all()
+def list_horses(db: Session, skip: int = 0, limit: int = 100, tenant_id: Optional[str] = None) -> list[Horse]:
+    q = db.query(Horse)
+    if tenant_id is not None:
+        q = q.filter(Horse.tenant_id == tenant_id)
+    return q.offset(skip).limit(limit).all()
 
 
 def add_owner(
@@ -116,6 +119,70 @@ def upsert_venue(
     return venue
 
 
+def delete_venue(db: Session, venue_id: str) -> bool:
+    """Delete a venue and all its gates (cascade). Returns True if found and deleted."""
+    venue = db.get(VenueRecord, venue_id)
+    if not venue:
+        return False
+    db.delete(venue)
+    db.commit()
+    return True
+
+
+def upsert_gate(
+    db: Session,
+    venue_id: str,
+    reader_id: str,
+    name: str,
+    distance_m: float,
+    is_finish: bool,
+    position_x: Optional[float] = None,
+    position_y: Optional[float] = None,
+) -> GateRecord:
+    """Insert or update a gate record for a venue."""
+    existing = (
+        db.query(GateRecord)
+        .filter_by(venue_id=venue_id, reader_id=reader_id)
+        .first()
+    )
+    if existing:
+        existing.name = name
+        existing.distance_m = distance_m
+        existing.is_finish = is_finish
+        existing.position_x = position_x
+        existing.position_y = position_y
+        db.commit()
+        db.refresh(existing)
+        return existing
+    gate = GateRecord(
+        venue_id=venue_id,
+        reader_id=reader_id,
+        name=name,
+        distance_m=distance_m,
+        is_finish=is_finish,
+        position_x=position_x,
+        position_y=position_y,
+    )
+    db.add(gate)
+    db.commit()
+    db.refresh(gate)
+    return gate
+
+
+def delete_gate(db: Session, venue_id: str, reader_id: str) -> bool:
+    """Delete a single gate. Returns True if found and deleted."""
+    gate = (
+        db.query(GateRecord)
+        .filter_by(venue_id=venue_id, reader_id=reader_id)
+        .first()
+    )
+    if not gate:
+        return False
+    db.delete(gate)
+    db.commit()
+    return True
+
+
 # ------------------------------------------------------------------ #
 # Race
 # ------------------------------------------------------------------ #
@@ -150,14 +217,11 @@ def get_race(db: Session, race_id: int) -> Optional[Race]:
     return db.get(Race, race_id)
 
 
-def list_races(db: Session, skip: int = 0, limit: int = 50) -> list[Race]:
-    return (
-        db.query(Race)
-        .order_by(Race.race_date.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+def list_races(db: Session, skip: int = 0, limit: int = 50, tenant_id: Optional[str] = None) -> list[Race]:
+    q = db.query(Race).order_by(Race.race_date.desc())
+    if tenant_id is not None:
+        q = q.filter(Race.tenant_id == tenant_id)
+    return q.offset(skip).limit(limit).all()
 
 
 # ------------------------------------------------------------------ #
@@ -615,8 +679,11 @@ def authenticate_user(db: Session, username: str, password: str):
     return user
 
 
-def list_users(db: Session) -> list[User]:
-    return db.query(User).order_by(User.id).all()
+def list_users(db: Session, tenant_id: Optional[str] = None) -> list[User]:
+    q = db.query(User).order_by(User.id)
+    if tenant_id is not None:
+        q = q.filter(User.tenant_id == tenant_id)
+    return q.all()
 
 
 def update_user(db: Session, user_id: int, **kwargs) -> Optional[User]:
@@ -655,8 +722,11 @@ def reset_password(db: Session, user_id: int, new_password: str) -> bool:
 from app.models import WebhookSubscription
 
 
-def list_webhooks(db: Session) -> list[WebhookSubscription]:
-    return db.query(WebhookSubscription).order_by(WebhookSubscription.id).all()
+def list_webhooks(db: Session, tenant_id: Optional[str] = None) -> list[WebhookSubscription]:
+    q = db.query(WebhookSubscription).order_by(WebhookSubscription.id)
+    if tenant_id is not None:
+        q = q.filter(WebhookSubscription.tenant_id == tenant_id)
+    return q.all()
 
 
 def get_webhook(db: Session, webhook_id: int) -> Optional[WebhookSubscription]:
@@ -772,3 +842,41 @@ def list_audit_log(
     if target_id:
         q = q.filter(AuditLog.target_id == target_id)
     return q.order_by(AuditLog.occurred_at.desc()).limit(limit).all()
+
+
+# ------------------------------------------------------------------ #
+# Tenants
+# ------------------------------------------------------------------ #
+
+def create_tenant(db: Session, name: str, slug: str) -> Tenant:
+    tenant = Tenant(
+        id=str(uuid.uuid4()),
+        name=name,
+        slug=slug,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    return tenant
+
+
+def get_tenant(db: Session, tenant_id: str) -> Optional[Tenant]:
+    return db.get(Tenant, tenant_id)
+
+
+def get_tenant_by_slug(db: Session, slug: str) -> Optional[Tenant]:
+    return db.query(Tenant).filter(Tenant.slug == slug).first()
+
+
+def list_tenants(db: Session) -> list[Tenant]:
+    return db.query(Tenant).order_by(Tenant.name).all()
+
+
+def delete_tenant(db: Session, tenant_id: str) -> bool:
+    tenant = db.get(Tenant, tenant_id)
+    if not tenant:
+        return False
+    db.delete(tenant)
+    db.commit()
+    return True

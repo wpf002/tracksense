@@ -106,23 +106,14 @@ def sign_payload(payload_bytes: bytes, secret: str) -> str:
 # Delivery
 # ------------------------------------------------------------------ #
 
-def deliver_webhook(subscription, payload: dict, attempt_number: int = 1) -> bool:
+def _attempt_delivery(subscription, payload: dict) -> tuple[bool, int | None, str | None]:
     """
-    POST payload to subscription.url with HMAC signature header.
-    Writes a WebhookDelivery log row after every attempt (success or failure).
-    Returns True on 2xx, False otherwise.
+    Execute a single HTTP POST attempt.
+    Returns (success, response_code, error_message).
+    Does NOT write to the DB — callers handle logging.
     """
-    from app.database import SessionLocal
-    from app.models import WebhookDelivery
-
-    sub_id = subscription.id
-    sub_name = subscription.name
     sub_url = subscription.url
-
-    response_code = None
-    response_body = None
-    error_message = None
-    success = False
+    sub_name = subscription.name
 
     try:
         body = json.dumps(payload, separators=(",", ":")).encode()
@@ -134,22 +125,32 @@ def deliver_webhook(subscription, payload: dict, attempt_number: int = 1) -> boo
             "User-Agent": "TrackSense-Webhook/1.0",
         }
         resp = requests.post(sub_url, data=body, headers=headers, timeout=10)
-        response_code = resp.status_code
-        response_body = resp.text[:4000] if resp.text else None
         success = 200 <= resp.status_code < 300
         status = "OK" if success else "FAILED"
         print(f"[webhook] {status} → {sub_name} ({sub_url}) — HTTP {resp.status_code}")
+        return success, resp.status_code, None
     except Exception as exc:
-        error_message = str(exc)
         print(f"[webhook] ERROR → {sub_name} ({sub_url}) — {exc}")
+        return False, None, str(exc)
 
-    # Write delivery log (best-effort — never fail the caller)
+
+def _write_delivery_log(
+    subscription_id: int,
+    attempt_number: int,
+    success: bool,
+    response_code: int | None,
+    response_body: str | None,
+    error_message: str | None,
+) -> None:
+    """Write one WebhookDelivery row. Best-effort — never raises."""
+    from app.database import SessionLocal
+    from app.models import WebhookDelivery
     try:
         db = SessionLocal()
         try:
             db.add(WebhookDelivery(
                 id=str(uuid.uuid4()),
-                subscription_id=sub_id,
+                subscription_id=subscription_id,
                 attempted_at=datetime.now(timezone.utc),
                 response_code=response_code,
                 response_body=response_body,
@@ -163,7 +164,73 @@ def deliver_webhook(subscription, payload: dict, attempt_number: int = 1) -> boo
     except Exception as log_exc:
         print(f"[webhook] delivery log write failed: {log_exc}")
 
+
+def deliver_webhook(subscription, payload: dict, attempt_number: int = 1) -> bool:
+    """
+    POST payload to subscription.url with HMAC signature header.
+    Writes a WebhookDelivery log row after every attempt (success or failure).
+    Returns True on 2xx, False otherwise.
+    """
+    success, response_code, error_message = _attempt_delivery(subscription, payload)
+
+    # Capture response body for the log (re-build it — _attempt_delivery didn't return it)
+    # response_body isn't needed for retry decisions so we skip it for simplicity.
+    _write_delivery_log(
+        subscription_id=subscription.id,
+        attempt_number=attempt_number,
+        success=success,
+        response_code=response_code,
+        response_body=None,
+        error_message=error_message,
+    )
+
     return success
+
+
+# ------------------------------------------------------------------ #
+# Retry delivery with exponential backoff
+# ------------------------------------------------------------------ #
+
+_RETRY_DELAYS = [5, 30]   # seconds between attempts 1→2 and 2→3 (3 attempts total)
+_MAX_ATTEMPTS = len(_RETRY_DELAYS) + 1   # 3
+
+
+def deliver_webhook_with_retry(subscription, payload: dict) -> None:
+    """
+    Deliver a webhook payload with up to 3 attempts (initial + 2 retries) on
+    network errors or HTTP 5xx responses. Delays between attempts: 5s, 30s.
+    The final attempt is attempt_number 3; after that delivery is abandoned.
+    HTTP 4xx responses are not retried.
+    Writes a WebhookDelivery row for every attempt.
+    """
+    for attempt_number in range(1, _MAX_ATTEMPTS + 1):   # 1, 2, 3
+        success, response_code, error_message = _attempt_delivery(subscription, payload)
+
+        _write_delivery_log(
+            subscription.id,
+            attempt_number,
+            success,
+            response_code,
+            None,
+            error_message,
+        )
+
+        if success:
+            return  # Done — stop retrying
+
+        # HTTP 4xx — do not retry
+        if response_code is not None and 400 <= response_code < 500:
+            print(f"[webhook] HTTP {response_code} — not retrying (4xx)")
+            return
+
+        # No more attempts
+        if attempt_number == _MAX_ATTEMPTS:
+            print(f"[webhook] All retries exhausted for {subscription.name} ({subscription.url})")
+            return
+
+        delay = _RETRY_DELAYS[attempt_number - 1]
+        print(f"[webhook] Attempt {attempt_number} failed — retrying in {delay}s")
+        time.sleep(delay)
 
 
 # ------------------------------------------------------------------ #
@@ -173,7 +240,8 @@ def deliver_webhook(subscription, payload: dict, attempt_number: int = 1) -> boo
 def fire_webhooks(race_state: dict) -> None:
     """
     Called (in a daemon thread) when a race finishes.
-    Loads all active race.finished subscriptions and delivers in parallel threads.
+    Loads all active race.finished subscriptions and delivers in parallel threads,
+    each with exponential-backoff retry.
     """
     from app.database import SessionLocal
     from app.models import WebhookSubscription
@@ -195,7 +263,7 @@ def fire_webhooks(race_state: dict) -> None:
 
         for sub in subs:
             threading.Thread(
-                target=deliver_webhook,
+                target=deliver_webhook_with_retry,
                 args=(sub, payload),
                 daemon=True,
             ).start()

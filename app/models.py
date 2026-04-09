@@ -9,6 +9,29 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
+# ------------------------------------------------------------------ #
+# Multi-tenancy
+# ------------------------------------------------------------------ #
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)   # UUID
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)  # URL-safe
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False,
+                                                  default=lambda: datetime.now(timezone.utc))
+
+    venues: Mapped[list["VenueRecord"]] = relationship("VenueRecord", back_populates="tenant")
+    horses: Mapped[list["Horse"]] = relationship("Horse", back_populates="tenant")
+    races: Mapped[list["Race"]] = relationship("Race", back_populates="tenant")
+    users: Mapped[list["User"]] = relationship("User", back_populates="tenant")
+    webhook_subscriptions: Mapped[list["WebhookSubscription"]] = relationship(
+        "WebhookSubscription", back_populates="tenant"
+    )
+    api_keys: Mapped[list["ApiKey"]] = relationship("ApiKey", back_populates="tenant")
+
+
 class Horse(Base):
     __tablename__ = "horses"
 
@@ -20,7 +43,9 @@ class Horse(Base):
     implant_vet: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     racing_api_horse_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
 
+    tenant: Mapped[Optional["Tenant"]] = relationship("Tenant", back_populates="horses")
     owners: Mapped[list["Owner"]] = relationship("Owner", back_populates="horse", cascade="all, delete-orphan")
     trainers: Mapped[list["Trainer"]] = relationship("Trainer", back_populates="horse", cascade="all, delete-orphan")
     vet_records: Mapped[list["VetRecord"]] = relationship("VetRecord", back_populates="horse", cascade="all, delete-orphan")
@@ -63,6 +88,9 @@ class VenueRecord(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     total_distance_m: Mapped[float] = mapped_column(Float, nullable=False)
 
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
+
+    tenant: Mapped[Optional["Tenant"]] = relationship("Tenant", back_populates="venues")
     gate_records: Mapped[list["GateRecord"]] = relationship("GateRecord", back_populates="venue", cascade="all, delete-orphan")
     races: Mapped[list["Race"]] = relationship("Race", back_populates="venue")
 
@@ -77,6 +105,8 @@ class GateRecord(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     distance_m: Mapped[float] = mapped_column(Float, nullable=False)
     is_finish: Mapped[bool] = mapped_column(Boolean, default=False)
+    position_x: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # normalised 0.0–1.0
+    position_y: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # normalised 0.0–1.0
 
     venue: Mapped["VenueRecord"] = relationship("VenueRecord", back_populates="gate_records")
 
@@ -92,7 +122,9 @@ class Race(Base):
     surface: Mapped[str] = mapped_column(String, default="turf")
     conditions: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="pending")  # pending | active | finished
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
 
+    tenant: Mapped[Optional["Tenant"]] = relationship("Tenant", back_populates="races")
     venue: Mapped["VenueRecord"] = relationship("VenueRecord", back_populates="races")
     entries: Mapped[list["RaceEntry"]] = relationship("RaceEntry", back_populates="race", cascade="all, delete-orphan")
     gate_reads: Mapped[list["GateRead"]] = relationship("GateRead", back_populates="race", cascade="all, delete-orphan")
@@ -236,6 +268,9 @@ class WebhookSubscription(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     created_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
+
+    tenant: Mapped[Optional["Tenant"]] = relationship("Tenant", back_populates="webhook_subscriptions")
     deliveries: Mapped[list["WebhookDelivery"]] = relationship(
         "WebhookDelivery", back_populates="subscription", cascade="all, delete-orphan"
     )
@@ -269,6 +304,9 @@ class ApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     rate_limit_per_minute: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
+
+    tenant: Mapped[Optional["Tenant"]] = relationship("Tenant", back_populates="api_keys")
 
 
 class User(Base):
@@ -282,3 +320,6 @@ class User(Base):
     full_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
+
+    tenant: Mapped[Optional["Tenant"]] = relationship("Tenant", back_populates="users")

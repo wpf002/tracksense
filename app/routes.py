@@ -65,6 +65,8 @@ class AddGateRequest(BaseModel):
     name: str = Field(..., description="Human-readable e.g. 'Start', 'Furlong 3', 'Finish'")
     distance_m: float = Field(..., description="Distance from start in metres")
     is_finish: bool = Field(False, description="True for the finish line gate")
+    position_x: Optional[float] = Field(None, description="Normalised X coordinate 0.0–1.0 for TrackMap")
+    position_y: Optional[float] = Field(None, description="Normalised Y coordinate 0.0–1.0 for TrackMap")
 
 
 class HorseRegistration(BaseModel):
@@ -138,6 +140,13 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+def require_super_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Super-admin: role=admin AND no tenant_id (platform-level user)."""
+    if current_user.role != "admin" or current_user.tenant_id is not None:
+        raise HTTPException(status_code=403, detail="Super-admin role required")
+    return current_user
+
+
 # ------------------------------------------------------------------ #
 # Auth endpoints
 # ------------------------------------------------------------------ #
@@ -147,12 +156,17 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = crud.authenticate_user(db, req.username, req.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = create_access_token({"sub": user.username})
+    token = create_access_token({
+        "sub": user.username,
+        "role": user.role,
+        "tenant_id": user.tenant_id,
+    })
     return {
         "access_token": token,
         "token_type": "bearer",
         "role": user.role,
         "username": user.username,
+        "tenant_id": user.tenant_id,
     }
 
 
@@ -171,7 +185,11 @@ def refresh_token(
     username = payload.get("sub")
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token payload")
-    new_token = create_access_token({"sub": username})
+    new_token = create_access_token({
+        "sub": username,
+        "role": payload.get("role"),
+        "tenant_id": payload.get("tenant_id"),
+    })
     return {"access_token": new_token, "token_type": "bearer"}
 
 
@@ -222,7 +240,7 @@ def admin_list_users(
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    users = crud.list_users(db)
+    users = crud.list_users(db, tenant_id=current_user.tenant_id)
     return [
         {
             "id": u.id,
@@ -356,10 +374,10 @@ class UpdateWebhookRequest(BaseModel):
 
 @router.get("/webhooks")
 def list_webhooks(
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    subs = crud.list_webhooks(db)
+    subs = crud.list_webhooks(db, tenant_id=current_user.tenant_id)
     return [
         {
             "id": s.id,
@@ -499,14 +517,21 @@ def list_webhook_deliveries(
 # ------------------------------------------------------------------ #
 
 @router.post("/venues")
-def create_venue(req: CreateVenueRequest, _: User = Depends(get_current_user)):
+def create_venue(
+    req: CreateVenueRequest,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    venue_id = req.venue_id.strip().upper()
     result = registry.create_venue(
-        venue_id=req.venue_id.strip().upper(),
+        venue_id=venue_id,
         name=req.name,
         total_distance_m=req.total_distance_m,
     )
     if not result["ok"]:
         raise HTTPException(409, result["error"])
+    # Persist to DB so GateRegistry can be restored on restart
+    crud.upsert_venue(db, venue_id=venue_id, name=req.name, total_distance_m=req.total_distance_m)
     return result
 
 
@@ -532,33 +557,106 @@ def get_venue(venue_id: str):
 
 
 @router.delete("/venues/{venue_id}")
-def delete_venue(venue_id: str, _: User = Depends(get_current_user)):
-    result = registry.delete_venue(venue_id.upper())
+def delete_venue(
+    venue_id: str,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    venue_id = venue_id.upper()
+    result = registry.delete_venue(venue_id)
     if not result["ok"]:
         raise HTTPException(404, result["error"])
+    crud.delete_venue(db, venue_id)
     return result
 
 
 @router.post("/venues/{venue_id}/gates")
-def add_gate(venue_id: str, req: AddGateRequest, _: User = Depends(get_current_user)):
+def add_gate(
+    venue_id: str,
+    req: AddGateRequest,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    venue_id = venue_id.upper()
+    reader_id = req.reader_id.strip().upper()
     result = registry.add_gate(
-        venue_id=venue_id.upper(),
-        reader_id=req.reader_id.strip().upper(),
+        venue_id=venue_id,
+        reader_id=reader_id,
         name=req.name,
         distance_m=req.distance_m,
         is_finish=req.is_finish,
     )
     if not result["ok"]:
         raise HTTPException(400, result["error"])
+    # Persist to DB (including optional position coordinates)
+    crud.upsert_gate(
+        db,
+        venue_id=venue_id,
+        reader_id=reader_id,
+        name=req.name,
+        distance_m=req.distance_m,
+        is_finish=req.is_finish,
+        position_x=req.position_x,
+        position_y=req.position_y,
+    )
     return result
 
 
 @router.delete("/venues/{venue_id}/gates/{reader_id}")
-def remove_gate(venue_id: str, reader_id: str, _: User = Depends(get_current_user)):
-    result = registry.remove_gate(venue_id.upper(), reader_id.upper())
+def remove_gate(
+    venue_id: str,
+    reader_id: str,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    venue_id = venue_id.upper()
+    reader_id = reader_id.upper()
+    result = registry.remove_gate(venue_id, reader_id)
     if not result["ok"]:
         raise HTTPException(404, result["error"])
+    crud.delete_gate(db, venue_id, reader_id)
     return result
+
+
+@router.get("/venues/{venue_id}/geometry")
+def get_venue_geometry(venue_id: str, db: Session = Depends(get_db)):
+    """
+    Return venue geometry for TrackMap rendering.
+    No auth required — safe to call from the frontend without a token.
+    Each gate includes optional position_x/position_y (0.0–1.0).
+    Gates missing position data have null x/y and are rendered by the
+    frontend using the oval arc-length parameterisation fallback.
+    """
+    from app.models import VenueRecord, GateRecord
+
+    venue_id = venue_id.upper()
+    venue = db.get(VenueRecord, venue_id)
+    if not venue:
+        raise HTTPException(404, f"Venue '{venue_id}' not found")
+
+    gates = (
+        db.query(GateRecord)
+        .filter_by(venue_id=venue_id)
+        .order_by(GateRecord.distance_m)
+        .all()
+    )
+
+    return {
+        "venue_id": venue.venue_id,
+        "name": venue.name,
+        "total_distance_m": venue.total_distance_m,
+        "gates": [
+            {
+                "reader_id": g.reader_id,
+                "name": g.name,
+                "distance_m": g.distance_m,
+                "is_finish": g.is_finish,
+                "position_x": g.position_x,
+                "position_y": g.position_y,
+            }
+            for g in gates
+        ],
+    }
 
 
 # ------------------------------------------------------------------ #
@@ -926,8 +1024,13 @@ def create_horse(req: CreateHorseRequest, db: Session = Depends(get_db), current
 
 
 @router.get("/horses")
-def list_horses(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    horses = crud.list_horses(db, skip=skip, limit=limit)
+def list_horses(
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    horses = crud.list_horses(db, skip=skip, limit=limit, tenant_id=current_user.tenant_id)
     return {
         "horses": [
             {
@@ -1322,3 +1425,64 @@ def get_test_barn_records(epc: str, db: Session = Depends(get_db)):
             for r in records
         ],
     }
+
+
+# ------------------------------------------------------------------ #
+# Tenants (super-admin only)
+# ------------------------------------------------------------------ #
+
+class CreateTenantRequest(BaseModel):
+    name: str = Field(..., description="Human-readable tenant name e.g. 'Racing Victoria'")
+    slug: str = Field(..., description="URL-safe unique slug e.g. 'racing-victoria'")
+
+
+def _tenant_dict(t):
+    return {
+        "id": t.id,
+        "name": t.name,
+        "slug": t.slug,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+    }
+
+
+@router.get("/tenants")
+def list_tenants(
+    _: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    return [_tenant_dict(t) for t in crud.list_tenants(db)]
+
+
+@router.post("/tenants", status_code=201)
+def create_tenant(
+    req: CreateTenantRequest,
+    _: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    if crud.get_tenant_by_slug(db, req.slug):
+        raise HTTPException(status_code=409, detail=f"Slug '{req.slug}' already exists")
+    tenant = crud.create_tenant(db, req.name, req.slug)
+    return _tenant_dict(tenant)
+
+
+@router.get("/tenants/{tenant_id}")
+def get_tenant(
+    tenant_id: str,
+    _: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    tenant = crud.get_tenant(db, tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return _tenant_dict(tenant)
+
+
+@router.delete("/tenants/{tenant_id}", status_code=204)
+def delete_tenant(
+    tenant_id: str,
+    _: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    if not crud.delete_tenant(db, tenant_id):
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return None

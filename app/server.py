@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.routes import router
 from app.api_keys_router import router as api_keys_router
+from app.exports_router import router as exports_router
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(router)
     app.include_router(api_keys_router)
+    app.include_router(exports_router)
     return app
 
 
