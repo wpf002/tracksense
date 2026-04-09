@@ -671,21 +671,30 @@ def run(force: bool = False) -> None:
     session = Session()
 
     try:
-        # Check for a known real venue rather than any horse — test fixtures
-        # populate horses with fake EPCs, which would otherwise block seeding.
+        # Check that ALL real venues are present — not just any venue.
+        # Test fixtures create venues like TESTTRACK/V1/MAP_TRACK that would
+        # fool a simple non-zero count, so we require every expected venue_id.
         from app.models import VenueRecord
-        real_seeded = session.query(VenueRecord).filter_by(venue_id="CHURCHILL").first()
-        if real_seeded and not force:
-            print("Real seed data already present (CHURCHILL venue found).")
+        real_venue_ids = {v["venue_id"] for v in VENUES}
+        present_ids = {
+            row.venue_id
+            for row in session.query(VenueRecord)
+                               .filter(VenueRecord.venue_id.in_(real_venue_ids))
+                               .all()
+        }
+        fully_seeded = (present_ids == real_venue_ids)
+
+        if fully_seeded and not force:
+            print(f"Real seed data already present (all {len(real_venue_ids)} venues found).")
             print("Run with --force to wipe and re-seed.")
             return
 
-        if real_seeded and force:
+        if fully_seeded and force:
             print("[seed] Clearing existing data...")
             clear_tables(session)
-        elif not real_seeded:
-            # Partial data (e.g. test fixtures) — clear before seeding
-            print("[seed] Clearing stale/test data before seeding...")
+        else:
+            missing = real_venue_ids - present_ids
+            print(f"[seed] Missing {len(missing)} real venue(s) — clearing stale/test data before seeding...")
             clear_tables(session)
 
         today = datetime.now().date()

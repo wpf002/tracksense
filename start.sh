@@ -73,15 +73,24 @@ PYEOF
 
 # ── Seed DB if empty ─────────────────────────────────────────────────────────
 echo "Checking seed data..."
-# Check for a known real venue (CHURCHILL) — test fixtures use different venue IDs,
-# so this ensures real seed data is present even if test data exists.
+# Require ALL 10 real venues to be present — test fixtures create venues with
+# different IDs (TESTTRACK, V1, MAP_TRACK, etc.) that would fool a simple count.
 REAL_SEED=$(.venv/bin/python - <<'PYEOF'
 import sqlite3, os
+REAL_VENUE_IDS = {
+    'CHURCHILL','SARATOGA','SANTA_ANITA','BELMONT','KEENELAND',
+    'OAKLAWN','DEL_MAR','LA_DOWNS','FLEMINGTON','ASCOT',
+}
 if os.path.exists("tracksense.db"):
     con = sqlite3.connect("tracksense.db")
-    row = con.execute("SELECT COUNT(*) FROM venue_records WHERE venue_id='CHURCHILL'").fetchone()
+    placeholders = ','.join('?' * len(REAL_VENUE_IDS))
+    row = con.execute(
+        f"SELECT COUNT(*) FROM venue_records WHERE venue_id IN ({placeholders})",
+        list(REAL_VENUE_IDS),
+    ).fetchone()
     con.close()
-    print(row[0])
+    # 1 = fully seeded, 0 = needs seeding
+    print(1 if row[0] == len(REAL_VENUE_IDS) else 0)
 else:
     print(0)
 PYEOF
