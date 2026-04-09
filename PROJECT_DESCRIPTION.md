@@ -15,8 +15,7 @@ of truth: timing, tracking, health, welfare, regulatory compliance, analytics.
 
 Current race timing and horse identity management fails in several ways:
 
-- Race equipment (transponders, bibs) must be attached and removed per race,
-  introducing human error and misassignment
+- Race equipment (transponders, bibs) must be attached and removed per race, introducing human error and misassignment
 - Photo finish resolves close margins but captures no sectional data
 - No continuous position tracking during a race — only start and finish
 - Horse identity is managed separately from timing, requiring manual reconciliation
@@ -35,14 +34,16 @@ gate readers, APIs, and workflows built around it.
 The development simulation is a 1:1 replica of real hardware behaviour.
 
 ### Simulation path
-```
+
+```text
 mock_multi_reader.py
   → Thread per horse, waits for gate arrival time
   → POST /tags/submit { tag_id: EPC, reader_id: "GATE-F4" }
 ```
 
 ### Real hardware path
-```
+
+```text
 hardware/reader.py (SerialReader / TCPReader / LLRPReader)
   → RFID antenna reads lip chip as horse passes at ~65 km/h
   → POST /tags/submit { tag_id: EPC, reader_id: "GATE-F4" }
@@ -52,26 +53,22 @@ Same endpoint. Same payload. Same backend logic. The only difference is what
 triggers the HTTP call. Switching to real hardware is a one-line config change.
 
 ### Simulation faithfully reproduces real RF behaviours
-- **2–4 reads per gate transit** (~8ms window at race speed) — the backend
-  deduplicates them into one confirmed detection event, exactly as it will in
-  production
+
+- **2–4 reads per gate transit** (~8ms window at race speed) — the backend deduplicates them into one confirmed detection event, exactly as it will in production
 - **Noise tags** — stray reads from non-race chips in the RF environment
-- **Speed profiles** — pacer / closer / midfield timing mirrors real race
-  sectional patterns
+- **Speed profiles** — pacer / closer / midfield timing mirrors real race sectional patterns
 
 ### Recommended hardware
+
 - **Antenna:** Impinj R420 or R220 (enterprise UHF, excellent multi-tag reads)
-- **Tag:** UHF Gen2 ISO 18000-6C glass capsule — 3–8m read range, handles
-  race speed. NOTE: standard vet LF microchips (ISO 11784/11785) have only
-  10–15cm range and are NOT suitable for finish-line detection
-- **Placement:** Two antennas per gate, RHCP circular polarisation, mounted
-  at ~1.2m (girth height), pointing inward across the track
+- **Tag:** UHF Gen2 ISO 18000-6C glass capsule — 3–8m read range, handles race speed. NOTE: standard vet LF microchips (ISO 11784/11785) have only 10–15cm range and are NOT suitable for finish-line detection
+- **Placement:** Two antennas per gate, RHCP circular polarisation, mounted at ~1.2m (girth height), pointing inward across the track
 
 ---
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                        HARDWARE LAYER                        │
 │  UHF antenna gates (Start, Furlong 2/4/6/8, Finish)         │
@@ -123,19 +120,19 @@ triggers the HTTP call. Switching to real hardware is a one-line config change.
 
 ## Technology Stack
 
-| Layer          | Technology                                      |
-|----------------|-------------------------------------------------|
-| Backend        | FastAPI (Python 3.12)                           |
-| Database       | PostgreSQL (prod) / SQLite (dev)                |
-| ORM            | SQLAlchemy + Alembic migrations                 |
-| Frontend       | React 19 + Vite + Tailwind CSS                  |
-| State          | Zustand + TanStack Query                        |
-| Real-time      | WebSockets (native FastAPI)                     |
-| Auth           | JWT (python-jose) + bcrypt                      |
-| Hardware       | pyserial (serial/USB) + sllurp (Impinj LLRP)    |
-| Simulation     | scripts/mock_multi_reader.py                    |
-| Dev launcher   | start.sh (schema check, auto-seed, health check)|
-| Containerisation| Docker + Docker Compose                        |
+| Layer            | Technology                                       |
+|------------------|--------------------------------------------------|
+| Backend          | FastAPI (Python 3.12)                            |
+| Database         | PostgreSQL (prod) / SQLite (dev)                 |
+| ORM              | SQLAlchemy + Alembic migrations                  |
+| Frontend         | React 19 + Vite + Tailwind CSS                   |
+| State            | Zustand + TanStack Query                         |
+| Real-time        | WebSockets (native FastAPI)                      |
+| Auth             | JWT (python-jose) + bcrypt                       |
+| Hardware         | pyserial (serial/USB) + sllurp (Impinj LLRP)     |
+| Simulation       | scripts/mock_multi_reader.py                     |
+| Dev launcher     | start.sh (schema check, auto-seed, health check) |
+| Containerisation | Docker + Docker Compose                          |
 
 ---
 
@@ -152,6 +149,7 @@ Beholder, Songbird, Golden Sixty, Equinox, and more
 Secretariat, Hugh Bowman on Winx, Tom Queally on Frankel, etc.)
 
 **10 real venues** with accurate distances:
+
 - Churchill Downs (2012m dirt) — Fri/Sat
 - Saratoga Race Course (1809m dirt) — Wed/Sat
 - Belmont Park (2414m dirt) — Fri/Sat
@@ -181,12 +179,13 @@ sectional times, workout logs, vet records, check-in and test barn records
 ```
 
 This single command:
+
 1. Kills any existing processes on ports 8001 / 5173
 2. Adds any missing DB columns (safe no-op if schema is current)
-3. Starts the FastAPI backend on http://localhost:8001
+3. Starts the FastAPI backend on <http://localhost:8001>
 4. Verifies backend health — exits with a clear error if it fails to start
 5. Auto-seeds the DB with real race data if it is empty
-6. Starts the React frontend on http://localhost:5173
+6. Starts the React frontend on <http://localhost:5173>
 7. Opens the browser to the login page
 
 **Login:** admin / tracksense
@@ -195,34 +194,30 @@ This single command:
 
 ## Completed Phases
 
-| Phase | Description                                              | Status    |
-|-------|----------------------------------------------------------|-----------|
-| 1     | Finish-line timing engine, duplicate folding, REST API   | Complete  |
-| 2     | Multi-gate tracking, sectionals, WebSocket feed          | Complete  |
-| 3     | PostgreSQL persistence, horse identity platform          | Complete  |
-| 4     | React frontend — Live Race, Results, Registry, Builder   | Complete  |
-| 5A    | Welfare workflows — workouts, check-in, test barn        | Complete  |
-| 6     | API keys, webhooks, GateSmart integration, audit log     | Complete  |
-| 7     | Multi-tenancy, JWT auth, LLRP reader, rate limiting      | Complete  |
+| Phase | Description                                            | Status   |
+|-------|--------------------------------------------------------|----------|
+| 1     | Finish-line timing engine, duplicate folding, REST API | Complete |
+| 2     | Multi-gate tracking, sectionals, WebSocket feed        | Complete |
+| 3     | PostgreSQL persistence, horse identity platform        | Complete |
+| 4     | React frontend — Live Race, Results, Registry, Builder | Complete |
+| 5A    | Welfare workflows — workouts, check-in, test barn      | Complete |
+| 6     | API keys, webhooks, GateSmart integration, audit log   | Complete |
+| 7     | Multi-tenancy, JWT auth, LLRP reader, rate limiting    | Complete |
 
 ---
 
 ## Immediate Next Work
 
-- TrackMap: replace SVG placeholder with accurate per-venue geometry;
-  horse positions driven by server-reported gate distances, not client
-  interpolation — must reach broadcast-quality bar
-- Biosensor integration: race-day wearable (heart rate, temp, stride)
-  paired to lip chip EPC at registration, telemetry stored per race
-- Thermal chip upgrade path: temperature reading at scan time via
-  thermal-capable UHF Gen2 chips (ISO 18000-6C + thermal sensor)
+- TrackMap: replace SVG placeholder with accurate per-venue geometry; horse positions driven by server-reported gate distances, not client interpolation — must reach broadcast-quality bar
+- Biosensor integration: race-day wearable (heart rate, temp, stride) paired to lip chip EPC at registration, telemetry stored per race
+- Thermal chip upgrade path: temperature reading at scan time via thermal-capable UHF Gen2 chips (ISO 18000-6C + thermal sensor)
 - Mobile-optimised views for trackside officials
 
 ---
 
 ## Competitive Position
 
-**Lip Chip / HoofLink** (lipchipllc.com) — closest existing product.
+**Lip Chip / HoofLink** (<https://lipchipllc.com>) — closest existing product.
 Lip-implant microchips with health records and temperature monitoring,
 focused on barrel racing / ranch horses using LF chips with Bluetooth
 short-range scanning. Does not support finish-line detection at race speed,
