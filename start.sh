@@ -73,17 +73,20 @@ PYEOF
 
 # ── Seed DB if empty ─────────────────────────────────────────────────────────
 echo "Checking seed data..."
-HORSE_COUNT=$(.venv/bin/python - <<'PYEOF'
+# Check for a known real venue (CHURCHILL) — test fixtures use different venue IDs,
+# so this ensures real seed data is present even if test data exists.
+REAL_SEED=$(.venv/bin/python - <<'PYEOF'
 import sqlite3, os
 if os.path.exists("tracksense.db"):
     con = sqlite3.connect("tracksense.db")
-    print(con.execute("SELECT COUNT(*) FROM horses").fetchone()[0])
+    row = con.execute("SELECT COUNT(*) FROM venue_records WHERE venue_id='CHURCHILL'").fetchone()
     con.close()
+    print(row[0])
 else:
     print(0)
 PYEOF
 )
-if [[ "$HORSE_COUNT" -eq 0 ]]; then
+if [[ "$REAL_SEED" -eq 0 ]]; then
   echo "Seeding database with real race data..."
   DATABASE_URL=sqlite:///./tracksense.db .venv/bin/python -m scripts.seed
 fi

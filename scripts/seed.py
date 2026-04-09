@@ -671,14 +671,21 @@ def run(force: bool = False) -> None:
     session = Session()
 
     try:
-        existing = session.query(Horse).count()
-        if existing > 0 and not force:
-            print(f"Database already contains {existing} horses.")
+        # Check for a known real venue rather than any horse — test fixtures
+        # populate horses with fake EPCs, which would otherwise block seeding.
+        from app.models import VenueRecord
+        real_seeded = session.query(VenueRecord).filter_by(venue_id="CHURCHILL").first()
+        if real_seeded and not force:
+            print("Real seed data already present (CHURCHILL venue found).")
             print("Run with --force to wipe and re-seed.")
             return
 
-        if existing > 0 and force:
+        if real_seeded and force:
             print("[seed] Clearing existing data...")
+            clear_tables(session)
+        elif not real_seeded:
+            # Partial data (e.g. test fixtures) — clear before seeding
+            print("[seed] Clearing stale/test data before seeding...")
             clear_tables(session)
 
         today = datetime.now().date()
