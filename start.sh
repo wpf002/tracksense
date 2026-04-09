@@ -20,11 +20,54 @@ import sqlite3, os
 db = "tracksense.db"
 if os.path.exists(db):
     con = sqlite3.connect(db)
+
+    # race_entries.jockey
     cols = [r[1] for r in con.execute("PRAGMA table_info(race_entries)").fetchall()]
     if "jockey" not in cols:
         con.execute("ALTER TABLE race_entries ADD COLUMN jockey VARCHAR(128)")
         con.commit()
         print("[schema] Added jockey column to race_entries.")
+
+    # checkin_records.temperature_c (Item 3)
+    cols = [r[1] for r in con.execute("PRAGMA table_info(checkin_records)").fetchall()]
+    if "temperature_c" not in cols:
+        con.execute("ALTER TABLE checkin_records ADD COLUMN temperature_c REAL")
+        con.commit()
+        print("[schema] Added temperature_c column to checkin_records.")
+
+    # track_path_points table (Item 1)
+    tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    if "track_path_points" not in tables:
+        con.execute("""
+            CREATE TABLE track_path_points (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                venue_id VARCHAR NOT NULL REFERENCES venue_records(venue_id) ON DELETE CASCADE,
+                sequence INTEGER NOT NULL,
+                x REAL NOT NULL,
+                y REAL NOT NULL,
+                UNIQUE(venue_id, sequence)
+            )
+        """)
+        con.commit()
+        print("[schema] Created track_path_points table.")
+
+    # biosensor_readings table (Item 2)
+    if "biosensor_readings" not in tables:
+        con.execute("""
+            CREATE TABLE biosensor_readings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                horse_epc VARCHAR NOT NULL REFERENCES horses(epc),
+                race_id INTEGER REFERENCES races(id),
+                recorded_at DATETIME NOT NULL,
+                heart_rate_bpm INTEGER,
+                temperature_c REAL,
+                stride_hz REAL,
+                source VARCHAR(64) NOT NULL DEFAULT 'wearable'
+            )
+        """)
+        con.commit()
+        print("[schema] Created biosensor_readings table.")
+
     con.close()
 PYEOF
 

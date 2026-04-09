@@ -1,7 +1,7 @@
 """Add multi-tenancy: Tenant table + tenant_id FK on parent tables.
 
 Revision ID: 012
-Revises: 011
+Revises: 011b
 Create Date: 2026-04-08
 
 Design notes:
@@ -14,7 +14,7 @@ Design notes:
 """
 
 revision = "012"
-down_revision = "011"
+down_revision = "011b"
 branch_labels = None
 depends_on = None
 

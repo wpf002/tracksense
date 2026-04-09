@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import {
   listHorses, getHorse, getHorseCareer, getHorseForm,
   getHorseSectionals, getHorseVet, compareHorses,
   getHorseWorkouts, getHorseCheckins, getHorseTestBarn,
+  getHorseBiosensor, getHorseTemperatureAlerts,
 } from '../api/horses'
 import DataTable from '../components/ui/DataTable'
 import TimingDisplay from '../components/ui/TimingDisplay'
@@ -300,6 +301,16 @@ function HorseDetail({ epc }) {
     queryFn: () => getHorseTestBarn(epc),
     enabled: !!horse,
   })
+  const { data: biosensorRaw = [], isLoading: loadingBiosensor } = useQuery({
+    queryKey: ['horse-biosensor', epc],
+    queryFn: () => getHorseBiosensor(epc, 200),
+    enabled: !!horse,
+  })
+  const { data: tempAlerts } = useQuery({
+    queryKey: ['horse-temp-alerts', epc],
+    queryFn: () => getHorseTemperatureAlerts(epc),
+    enabled: !!horse,
+  })
 
   if (loadingHorse)
     return <p className="p-6 text-text-muted text-xs font-timing tracking-widest">Loading...</p>
@@ -471,6 +482,20 @@ function HorseDetail({ epc }) {
       render: (r) => (
         <span className="text-xs text-text-muted">{r.location ?? '—'}</span>
       ),
+    },
+    {
+      key: 'temperature_c',
+      label: 'Temp (°C)',
+      render: (r) => {
+        const t = r.temperature_c
+        if (t == null) return <span className="font-timing text-xs text-text-muted">—</span>
+        const cls = t >= 39.0 || t <= 37.0
+          ? 'text-red-400 font-bold'
+          : t >= 38.5
+          ? 'text-amber-400 font-bold'
+          : 'text-text-primary'
+        return <span className={`font-timing text-xs ${cls}`}>{t.toFixed(1)}°C</span>
+      },
     },
     {
       key: 'scanned_by',
@@ -718,7 +743,91 @@ function HorseDetail({ epc }) {
         )}
       </SectionShell>
 
-      {/* ── SECTION 9: Head to Head ── */}
+      {/* ── SECTION 9: Biosensor ── */}
+      <SectionShell title="Biosensor — Last 200 Readings">
+        {loadingBiosensor ? <SectionLoading /> : biosensorRaw.length === 0 ? (
+          <p className="px-4 py-3 text-text-muted text-xs font-timing">No biosensor data available</p>
+        ) : (() => {
+          const sorted = [...biosensorRaw].sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at))
+          const hrData  = sorted.filter(r => r.heart_rate_bpm != null).map((r, i) => ({ i, v: r.heart_rate_bpm, t: r.recorded_at }))
+          const tmpData = sorted.filter(r => r.temperature_c   != null).map((r, i) => ({ i, v: r.temperature_c,   t: r.recorded_at }))
+          const strData = sorted.filter(r => r.stride_hz       != null).map((r, i) => ({ i, v: r.stride_hz,       t: r.recorded_at }))
+          return (
+            <div className="p-4 grid grid-cols-1 gap-4">
+              {hrData.length > 0 && (
+                <div>
+                  <p className="text-xs text-text-muted font-timing uppercase tracking-widest mb-1">Heart Rate (bpm)</p>
+                  <div style={{ height: 120, background: '#111' }} className="border border-border">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={hrData} margin={{ top: 4, right: 8, left: -10, bottom: 4 }}>
+                        <XAxis dataKey="i" hide />
+                        <YAxis tick={{ fill: '#6b7280', fontSize: 9, fontFamily: 'monospace' }} tickLine={false} axisLine={false} unit=" bpm" />
+                        <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', color: '#f5f5f5', fontSize: 11 }}
+                          formatter={(v) => [`${v} bpm`, 'HR']} labelFormatter={() => ''} />
+                        <Line type="monotone" dataKey="v" stroke="#ef4444" dot={false} strokeWidth={1.5} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+              {tmpData.length > 0 && (
+                <div>
+                  <p className="text-xs text-text-muted font-timing uppercase tracking-widest mb-1">Body Temperature (°C)</p>
+                  <div style={{ height: 120, background: '#111' }} className="border border-border">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={tmpData} margin={{ top: 4, right: 8, left: -10, bottom: 4 }}>
+                        <XAxis dataKey="i" hide />
+                        <YAxis domain={['auto', 'auto']} tick={{ fill: '#6b7280', fontSize: 9, fontFamily: 'monospace' }} tickLine={false} axisLine={false} unit="°C" />
+                        <ReferenceLine y={38.5} stroke="#f59e0b" strokeDasharray="4 2" />
+                        <ReferenceLine y={39.0} stroke="#ef4444" strokeDasharray="4 2" />
+                        <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', color: '#f5f5f5', fontSize: 11 }}
+                          formatter={(v) => [`${v?.toFixed(1)}°C`, 'Temp']} labelFormatter={() => ''} />
+                        <Line type="monotone" dataKey="v" stroke="#06b6d4" dot={false} strokeWidth={1.5} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+              {strData.length > 0 && (
+                <div>
+                  <p className="text-xs text-text-muted font-timing uppercase tracking-widest mb-1">Stride Frequency (Hz)</p>
+                  <div style={{ height: 120, background: '#111' }} className="border border-border">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={strData} margin={{ top: 4, right: 8, left: -10, bottom: 4 }}>
+                        <XAxis dataKey="i" hide />
+                        <YAxis tick={{ fill: '#6b7280', fontSize: 9, fontFamily: 'monospace' }} tickLine={false} axisLine={false} unit=" Hz" />
+                        <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', color: '#f5f5f5', fontSize: 11 }}
+                          formatter={(v) => [`${v?.toFixed(2)} Hz`, 'Stride']} labelFormatter={() => ''} />
+                        <Line type="monotone" dataKey="v" stroke="#22c55e" dot={false} strokeWidth={1.5} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
+      </SectionShell>
+
+      {/* ── SECTION 10: Temperature Alerts ── */}
+      {tempAlerts?.alert_count > 0 && (
+        <SectionShell title={`Temperature Alerts — ${tempAlerts.alert_count} flag${tempAlerts.alert_count !== 1 ? 's' : ''}`}>
+          <div className="divide-y divide-border">
+            {tempAlerts.alerts.map((a) => (
+              <div key={a.id} className="px-4 py-2 flex items-center gap-4">
+                <span className={`text-xs font-timing font-bold ${a.severity === 'red' ? 'text-red-400' : 'text-amber-400'}`}>
+                  {a.temperature_c?.toFixed(1)}°C
+                </span>
+                <span className="text-xs text-text-muted font-timing">{fmtDatetime(a.scanned_at)}</span>
+                {a.location && <span className="text-xs text-text-muted">{a.location}</span>}
+                {a.race_id && <span className="text-xs text-text-muted font-timing">Race #{a.race_id}</span>}
+              </div>
+            ))}
+          </div>
+        </SectionShell>
+      )}
+
+      {/* ── SECTION 11: Head to Head ── */}
       <HeadToHead epc1={epc} />
     </div>
   )

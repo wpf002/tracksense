@@ -446,6 +446,7 @@ export default function LiveRace() {
             totalDistanceM={venueData.total_distance_m}
             gates={venueData.gates ?? []}
             currentElapsedMs={displayedElapsed ?? 0}
+            venueId={venueId}
           />
         </div>
       )}

@@ -55,6 +55,7 @@ class Horse(Base):
     workouts: Mapped[list["WorkoutRecord"]] = relationship("WorkoutRecord", back_populates="horse", cascade="all, delete-orphan")
     checkins: Mapped[list["CheckInRecord"]] = relationship("CheckInRecord", back_populates="horse", cascade="all, delete-orphan")
     test_barn_records: Mapped[list["TestBarnRecord"]] = relationship("TestBarnRecord", back_populates="horse", cascade="all, delete-orphan")
+    biosensor_readings: Mapped[list["BiosensorReading"]] = relationship("BiosensorReading", back_populates="horse", cascade="all, delete-orphan")
 
 
 class Owner(Base):
@@ -93,6 +94,7 @@ class VenueRecord(Base):
     tenant: Mapped[Optional["Tenant"]] = relationship("Tenant", back_populates="venues")
     gate_records: Mapped[list["GateRecord"]] = relationship("GateRecord", back_populates="venue", cascade="all, delete-orphan")
     races: Mapped[list["Race"]] = relationship("Race", back_populates="venue")
+    track_path_points: Mapped[list["TrackPathPoint"]] = relationship("TrackPathPoint", back_populates="venue", cascade="all, delete-orphan")
 
 
 class GateRecord(Base):
@@ -223,6 +225,7 @@ class CheckInRecord(Base):
     location: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    temperature_c: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # thermal chip read
 
     horse: Mapped["Horse"] = relationship("Horse", back_populates="checkins")
 
@@ -324,3 +327,40 @@ class User(Base):
     tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
 
     tenant: Mapped[Optional["Tenant"]] = relationship("Tenant", back_populates="users")
+
+
+# ------------------------------------------------------------------ #
+# Track path geometry (Item 1)
+# ------------------------------------------------------------------ #
+
+class TrackPathPoint(Base):
+    __tablename__ = "track_path_points"
+    __table_args__ = (UniqueConstraint("venue_id", "sequence"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    venue_id: Mapped[str] = mapped_column(String, ForeignKey("venue_records.venue_id"), nullable=False, index=True)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    x: Mapped[float] = mapped_column(Float, nullable=False)   # normalised 0.0–1.0
+    y: Mapped[float] = mapped_column(Float, nullable=False)   # normalised 0.0–1.0
+
+    venue: Mapped["VenueRecord"] = relationship("VenueRecord", back_populates="track_path_points")
+
+
+# ------------------------------------------------------------------ #
+# Biosensor (Item 2)
+# ------------------------------------------------------------------ #
+
+class BiosensorReading(Base):
+    __tablename__ = "biosensor_readings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
+    race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True, index=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
+                                                   default=lambda: datetime.now(timezone.utc))
+    heart_rate_bpm: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    temperature_c: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    stride_hz: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="wearable")
+
+    horse: Mapped["Horse"] = relationship("Horse", back_populates="biosensor_readings")

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Outlet, useLocation } from 'react-router-dom'
+import { useNavigate, Outlet, useLocation, NavLink as RouterNavLink } from 'react-router-dom'
 import NavLink from './NavLink'
 import useRaceStore from '../../store/raceStore'
 import LiveDot from '../ui/LiveDot'
@@ -25,8 +25,8 @@ export default function Shell() {
 
   return (
     <div className="flex h-full min-h-screen bg-bg">
-      {/* Sidebar */}
-      <aside className="w-52 shrink-0 bg-surface border-r border-border flex flex-col">
+      {/* ── Desktop sidebar (hidden on mobile) ─────────────────────── */}
+      <aside className="hidden sm:flex w-52 shrink-0 bg-surface border-r border-border flex-col">
         {/* Logo */}
         <div className="px-4 py-5 border-b border-border">
           <div className="flex items-center gap-2">
@@ -48,6 +48,7 @@ export default function Shell() {
           <NavLink to="/results">Results</NavLink>
           <NavLink to="/horses">Horses</NavLink>
           <NavLink to="/builder">Race Builder</NavLink>
+          <NavLink to="/mobile/checkin">Quick Check-In</NavLink>
 
           <div className="mt-3 border-t border-border pt-3">
             <button
@@ -107,10 +108,36 @@ export default function Shell() {
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto">
+      {/* ── Main content ─────────────────────────────────────────────── */}
+      <main className="flex-1 overflow-auto pb-16 sm:pb-0">
         <Outlet />
       </main>
+
+      {/* ── Mobile bottom tab bar (visible only at ≤640px) ───────────── */}
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface border-t border-border flex items-stretch h-14">
+        {[
+          { to: '/live',           label: 'Live',     icon: '◉' },
+          { to: '/results',        label: 'Results',  icon: '🏁' },
+          { to: '/horses',         label: 'Horses',   icon: '🐎' },
+          { to: '/mobile/checkin', label: 'Check-In', icon: '📷' },
+          { to: '/builder',        label: 'Builder',  icon: '⚙' },
+        ].map(({ to, label, icon }) => {
+          const active = location.pathname === to || location.pathname.startsWith(to + '/')
+          return (
+            <RouterNavLink
+              key={to}
+              to={to}
+              className={[
+                'flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-timing tracking-wide uppercase min-h-[44px] transition-colors',
+                active ? 'text-accent border-t-2 border-accent -mt-px' : 'text-text-muted',
+              ].join(' ')}
+            >
+              <span className="text-base leading-none">{icon}</span>
+              <span>{label}</span>
+            </RouterNavLink>
+          )
+        })}
+      </nav>
     </div>
   )
 }

@@ -880,3 +880,124 @@ def delete_tenant(db: Session, tenant_id: str) -> bool:
     db.delete(tenant)
     db.commit()
     return True
+
+
+# ------------------------------------------------------------------ #
+# Track path (Item 1)
+# ------------------------------------------------------------------ #
+
+from app.models import TrackPathPoint
+
+
+def upsert_track_path(db: Session, venue_id: str, points: list[dict]) -> dict:
+    """Replace the entire track path for a venue. points = [{x, y}, ...]."""
+    if not db.get(VenueRecord, venue_id):
+        return {"ok": False, "error": f"Venue '{venue_id}' not found"}
+    db.query(TrackPathPoint).filter_by(venue_id=venue_id).delete()
+    for seq, pt in enumerate(points):
+        db.add(TrackPathPoint(venue_id=venue_id, sequence=seq, x=pt["x"], y=pt["y"]))
+    db.commit()
+    return {"ok": True, "count": len(points)}
+
+
+def get_track_path(db: Session, venue_id: str) -> list[TrackPathPoint]:
+    return (
+        db.query(TrackPathPoint)
+        .filter_by(venue_id=venue_id)
+        .order_by(TrackPathPoint.sequence)
+        .all()
+    )
+
+
+# ------------------------------------------------------------------ #
+# Biosensor (Item 2)
+# ------------------------------------------------------------------ #
+
+from app.models import BiosensorReading
+from datetime import datetime as _dt
+
+
+def add_biosensor_reading(
+    db: Session,
+    horse_epc: str,
+    recorded_at: Optional[_dt] = None,
+    race_id: Optional[int] = None,
+    heart_rate_bpm: Optional[int] = None,
+    temperature_c: Optional[float] = None,
+    stride_hz: Optional[float] = None,
+    source: str = "wearable",
+) -> dict:
+    if not db.get(Horse, horse_epc):
+        return {"ok": False, "error": f"Horse '{horse_epc}' not found"}
+    reading = BiosensorReading(
+        horse_epc=horse_epc,
+        race_id=race_id,
+        recorded_at=recorded_at or datetime.now(timezone.utc),
+        heart_rate_bpm=heart_rate_bpm,
+        temperature_c=temperature_c,
+        stride_hz=stride_hz,
+        source=source,
+    )
+    db.add(reading)
+    db.commit()
+    db.refresh(reading)
+    return {"ok": True, "id": reading.id}
+
+
+def get_biosensor_readings(
+    db: Session, horse_epc: str, limit: int = 200
+) -> list[BiosensorReading]:
+    return (
+        db.query(BiosensorReading)
+        .filter_by(horse_epc=horse_epc)
+        .order_by(BiosensorReading.recorded_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def get_race_biosensor_readings(
+    db: Session, race_id: int
+) -> list[BiosensorReading]:
+    return (
+        db.query(BiosensorReading)
+        .filter_by(race_id=race_id)
+        .order_by(BiosensorReading.horse_epc, BiosensorReading.recorded_at)
+        .all()
+    )
+
+
+# ------------------------------------------------------------------ #
+# Thermal temperature history (Item 3)
+# ------------------------------------------------------------------ #
+
+TEMP_WARN_HIGH = 38.5    # amber
+TEMP_ALERT_HIGH = 39.0   # red
+TEMP_ALERT_LOW = 37.0    # red
+
+
+def get_temperature_history(db: Session, horse_epc: str, limit: int = 50) -> list[CheckInRecord]:
+    return (
+        db.query(CheckInRecord)
+        .filter(CheckInRecord.horse_epc == horse_epc, CheckInRecord.temperature_c.isnot(None))
+        .order_by(CheckInRecord.scanned_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def get_temperature_alerts(db: Session, horse_epc: str) -> list[CheckInRecord]:
+    from sqlalchemy import or_
+    return (
+        db.query(CheckInRecord)
+        .filter(
+            CheckInRecord.horse_epc == horse_epc,
+            CheckInRecord.temperature_c.isnot(None),
+            or_(
+                CheckInRecord.temperature_c >= TEMP_ALERT_HIGH,
+                CheckInRecord.temperature_c <= TEMP_ALERT_LOW,
+            ),
+        )
+        .order_by(CheckInRecord.scanned_at.desc())
+        .all()
+    )

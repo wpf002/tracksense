@@ -1,12 +1,12 @@
 """Add jockey column to race_entries table.
 
-Revision ID: 011
-Revises: 010
+Revision ID: 011b
+Revises: 011
 Create Date: 2026-04-09
 """
 
-revision = "011"
-down_revision = "010"
+revision = "011b"
+down_revision = "011"
 branch_labels = None
 depends_on = None
 

@@ -11,6 +11,7 @@ Run from project root:
     python -m scripts.seed --force    # wipe and re-seed
 """
 
+import math
 import os
 import sys
 import random
@@ -29,7 +30,7 @@ from app.database import Base
 import app.models  # noqa: F401 — registers all ORM classes
 from app.models import (
     Horse, Owner, Trainer, VetRecord,
-    VenueRecord, GateRecord,
+    VenueRecord, GateRecord, TrackPathPoint,
     Race, RaceEntry, GateRead, RaceResult,
     WorkoutRecord, CheckInRecord, TestBarnRecord,
 )
@@ -177,6 +178,70 @@ SPEED_PROFILES = {
 }
 
 # ------------------------------------------------------------------ #
+# Oval arc-length helpers (mirrors TrackMap.jsx oval parameterisation)
+# ------------------------------------------------------------------ #
+
+_OVAL_CX, _OVAL_CY = 0.5, 0.5
+_OVAL_MID_RX = 287 / 800    # MID_RX / W_OVAL
+_OVAL_MID_RY = 105 / 310    # MID_RY / H_OVAL
+_ARC_STEPS = 720
+
+
+def _build_arc_table():
+    table = [(0.0, 0.0)]
+    total = 0.0
+    da = 2 * math.pi / _ARC_STEPS
+    for i in range(1, _ARC_STEPS + 1):
+        mid = (i - 0.5) * da
+        ds = math.sqrt(
+            (287 * math.cos(mid)) ** 2 + (105 * math.sin(mid)) ** 2
+        ) * da
+        total += ds
+        table.append((i * da, total))
+    return table, total
+
+
+_ARC_TABLE, _ARC_TOTAL = _build_arc_table()
+
+
+def _progress_to_angle(progress: float) -> float:
+    target = (progress % 1.0) * _ARC_TOTAL
+    lo, hi = 0, len(_ARC_TABLE) - 1
+    while lo < hi - 1:
+        mid = (lo + hi) // 2
+        if _ARC_TABLE[mid][1] <= target:
+            lo = mid
+        else:
+            hi = mid
+    a0, l0 = _ARC_TABLE[lo]
+    a1, l1 = _ARC_TABLE[hi]
+    f = 0 if l1 == l0 else (target - l0) / (l1 - l0)
+    arc_angle = a0 + f * (a1 - a0)
+    return math.pi / 2 - arc_angle
+
+
+def gate_oval_position(distance_m: float, total_distance_m: float) -> tuple:
+    """Return normalised (x, y) for a gate at distance_m on the oval."""
+    progress = distance_m / total_distance_m if total_distance_m > 0 else 0
+    angle = _progress_to_angle(progress)
+    x = _OVAL_CX + _OVAL_MID_RX * math.cos(angle)
+    y = _OVAL_CY + _OVAL_MID_RY * math.sin(angle)
+    return round(x, 4), round(y, 4)
+
+
+def oval_path_points(n: int = 48) -> list[dict]:
+    """Generate n evenly-spaced points on the mid-track oval, starting at progress=0."""
+    pts = []
+    for i in range(n):
+        angle = _progress_to_angle(i / n)
+        pts.append({
+            "x": round(_OVAL_CX + _OVAL_MID_RX * math.cos(angle), 4),
+            "y": round(_OVAL_CY + _OVAL_MID_RY * math.sin(angle), 4),
+        })
+    return pts
+
+
+# ------------------------------------------------------------------ #
 # Helpers
 # ------------------------------------------------------------------ #
 
@@ -243,9 +308,10 @@ def weighted_sample_no_replacement(population: list, weights: list, k: int) -> l
 
 def clear_tables(session) -> None:
     for table in [
+        "biosensor_readings",
         "test_barn_records", "checkin_records", "workout_records",
         "race_results", "gate_reads", "race_entries", "races",
-        "gate_records", "venue_records",
+        "track_path_points", "gate_records", "venue_records",
         "vet_records", "trainers", "owners", "horses",
     ]:
         session.execute(text(f"DELETE FROM {table}"))
@@ -300,12 +366,15 @@ def seed_venues(session) -> dict:
             total_distance_m=v["distance"],
         ))
         for reader_id, name, dist, is_finish in gates:
+            px, py = gate_oval_position(dist, v["distance"])
             session.add(GateRecord(
                 venue_id=v["venue_id"],
                 reader_id=reader_id,
                 name=name,
                 distance_m=dist,
                 is_finish=is_finish,
+                position_x=px,
+                position_y=py,
             ))
         venue_map[v["venue_id"]] = {**v, "gates": gates, "segments_ms": segments_ms}
     session.commit()
@@ -520,6 +589,9 @@ def seed_checkins(session, race_records: list) -> int:
         for epc in race_info["field"]:
             verified   = random.random() > 0.01  # 99% verified
             scanned_at = race_dt - timedelta(minutes=random.randint(45, 90))
+            # Realistic temperature: 37.2-38.8°C; ~5% elevated (>38.5°C)
+            temp_c = round(random.gauss(37.9, 0.35), 1)
+            temp_c = max(36.5, min(40.0, temp_c))   # clamp to physiological range
             session.add(CheckInRecord(
                 horse_epc=epc,
                 race_id=race_id,
@@ -528,6 +600,7 @@ def seed_checkins(session, race_records: list) -> int:
                 location=random.choice(CHECKIN_LOCATIONS),
                 verified=verified,
                 notes=None if verified else "Identity query raised — resolved manually",
+                temperature_c=temp_c,
             ))
             total += 1
     session.commit()
@@ -558,6 +631,18 @@ def seed_test_barn(session, race_records: list) -> int:
                 result=result,
                 notes=None,
             ))
+            total += 1
+    session.commit()
+    return total
+
+
+def seed_track_paths(session, venue_map: dict) -> int:
+    """Seed 48-point oval track path for every venue."""
+    points = oval_path_points(48)
+    total = 0
+    for venue_id in venue_map:
+        for seq, pt in enumerate(points):
+            session.add(TrackPathPoint(venue_id=venue_id, sequence=seq, x=pt["x"], y=pt["y"]))
             total += 1
     session.commit()
     return total
@@ -628,6 +713,9 @@ def run(force: bool = False) -> None:
         print("[seed] Generating test barn records...")
         n_test_barn = seed_test_barn(session, race_records)
 
+        print("[seed] Seeding track path geometry...")
+        n_path_pts = seed_track_paths(session, venue_map)
+
         print("[seed] Seeding in-memory gate registry...")
         seed_registry(venue_map)
 
@@ -652,6 +740,7 @@ def run(force: bool = False) -> None:
         print(f"Workout records:   {n_workouts}")
         print(f"Check-in records:  {n_checkins}")
         print(f"Test barn records: {n_test_barn}")
+        print(f"Track path points: {n_path_pts}")
         print("===================================\n")
 
         print("First 5 horse EPCs for testing Horse Profile:")

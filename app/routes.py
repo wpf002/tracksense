@@ -988,6 +988,7 @@ class CheckInRequest(BaseModel):
     location: Optional[str] = None
     race_id: Optional[int] = None
     notes: Optional[str] = None
+    temperature_c: Optional[float] = Field(None, description="Thermal chip temperature reading in °C")
 
 
 class TestBarnCheckInRequest(BaseModel):
@@ -1346,6 +1347,7 @@ def add_checkin(epc: str, req: CheckInRequest, db: Session = Depends(get_db), _:
         location=req.location,
         race_id=req.race_id,
         notes=req.notes,
+        temperature_c=req.temperature_c,
     )
     if not result["ok"]:
         raise HTTPException(404, result["error"])
@@ -1369,6 +1371,7 @@ def get_checkins(epc: str, race_id: Optional[int] = None, db: Session = Depends(
                 "location": r.location,
                 "verified": r.verified,
                 "notes": r.notes,
+                "temperature_c": r.temperature_c,
             }
             for r in records
         ],
@@ -1423,6 +1426,212 @@ def get_test_barn_records(epc: str, db: Session = Depends(get_db)):
                 "sample_id": r.sample_id,
                 "result": r.result,
                 "notes": r.notes,
+            }
+            for r in records
+        ],
+    }
+
+
+# ------------------------------------------------------------------ #
+# Track path (Item 1)
+# ------------------------------------------------------------------ #
+
+class TrackPathPointInput(BaseModel):
+    x: float = Field(..., ge=0.0, le=1.0)
+    y: float = Field(..., ge=0.0, le=1.0)
+
+
+class SetTrackPathRequest(BaseModel):
+    points: list[TrackPathPointInput] = Field(..., min_length=3)
+
+
+@router.post("/venues/{venue_id}/track-path")
+def set_track_path(
+    venue_id: str,
+    req: SetTrackPathRequest,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    venue_id = venue_id.upper()
+    result = crud.upsert_track_path(db, venue_id, [{"x": p.x, "y": p.y} for p in req.points])
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.get("/venues/{venue_id}/track-path")
+def get_track_path(venue_id: str, db: Session = Depends(get_db)):
+    venue_id = venue_id.upper()
+    from app.models import VenueRecord
+    if not db.get(VenueRecord, venue_id):
+        raise HTTPException(404, f"Venue '{venue_id}' not found")
+    points = crud.get_track_path(db, venue_id)
+    return {
+        "venue_id": venue_id,
+        "count": len(points),
+        "points": [{"sequence": p.sequence, "x": p.x, "y": p.y} for p in points],
+    }
+
+
+# ------------------------------------------------------------------ #
+# Biosensor (Item 2)
+# ------------------------------------------------------------------ #
+
+class BiosensorReadingRequest(BaseModel):
+    recorded_at: Optional[str] = Field(None, description="ISO datetime; defaults to now")
+    race_id: Optional[int] = None
+    heart_rate_bpm: Optional[int] = Field(None, ge=20, le=300)
+    temperature_c: Optional[float] = Field(None, ge=30.0, le=45.0)
+    stride_hz: Optional[float] = Field(None, ge=0.5, le=5.0)
+    source: str = "wearable"
+
+
+class BiosensorBulkItem(BaseModel):
+    horse_epc: str
+    recorded_at: Optional[str] = None
+    heart_rate_bpm: Optional[int] = Field(None, ge=20, le=300)
+    temperature_c: Optional[float] = Field(None, ge=30.0, le=45.0)
+    stride_hz: Optional[float] = Field(None, ge=0.5, le=5.0)
+    source: str = "wearable"
+
+
+class BiosensorBulkRequest(BaseModel):
+    readings: list[BiosensorBulkItem]
+
+
+@router.post("/horses/{epc}/biosensor")
+def add_biosensor(
+    epc: str,
+    req: BiosensorReadingRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    epc = epc.strip().upper()
+    recorded_at = None
+    if req.recorded_at:
+        try:
+            recorded_at = datetime.fromisoformat(req.recorded_at)
+        except ValueError:
+            raise HTTPException(400, f"Invalid recorded_at format: '{req.recorded_at}'")
+    result = crud.add_biosensor_reading(
+        db, horse_epc=epc, recorded_at=recorded_at, race_id=req.race_id,
+        heart_rate_bpm=req.heart_rate_bpm, temperature_c=req.temperature_c,
+        stride_hz=req.stride_hz, source=req.source,
+    )
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+def _biosensor_dict(r):
+    return {
+        "id": r.id,
+        "horse_epc": r.horse_epc,
+        "race_id": r.race_id,
+        "recorded_at": r.recorded_at.isoformat() if r.recorded_at else None,
+        "heart_rate_bpm": r.heart_rate_bpm,
+        "temperature_c": r.temperature_c,
+        "stride_hz": r.stride_hz,
+        "source": r.source,
+    }
+
+
+@router.get("/horses/{epc}/biosensor")
+def get_biosensor(epc: str, limit: int = 200, db: Session = Depends(get_db)):
+    epc = epc.strip().upper()
+    if not crud.get_horse(db, epc):
+        raise HTTPException(404, f"Horse '{epc}' not found")
+    readings = crud.get_biosensor_readings(db, epc, limit=min(limit, 500))
+    return {"epc": epc, "readings": [_biosensor_dict(r) for r in readings]}
+
+
+@router.get("/races/{race_id}/biosensor")
+def get_race_biosensor(race_id: int, db: Session = Depends(get_db)):
+    race = crud.get_race(db, race_id)
+    if not race:
+        raise HTTPException(404, f"Race {race_id} not found")
+    readings = crud.get_race_biosensor_readings(db, race_id)
+    return {"race_id": race_id, "readings": [_biosensor_dict(r) for r in readings]}
+
+
+@router.post("/races/{race_id}/biosensor/bulk")
+def bulk_biosensor(
+    race_id: int,
+    req: BiosensorBulkRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    race = crud.get_race(db, race_id)
+    if not race:
+        raise HTTPException(404, f"Race {race_id} not found")
+    if not req.readings:
+        raise HTTPException(400, "No readings provided")
+    created = 0
+    errors = []
+    for item in req.readings:
+        recorded_at = None
+        if item.recorded_at:
+            try:
+                recorded_at = datetime.fromisoformat(item.recorded_at)
+            except ValueError:
+                errors.append(f"Invalid recorded_at: '{item.recorded_at}'")
+                continue
+        result = crud.add_biosensor_reading(
+            db, horse_epc=item.horse_epc.strip().upper(),
+            recorded_at=recorded_at, race_id=race_id,
+            heart_rate_bpm=item.heart_rate_bpm, temperature_c=item.temperature_c,
+            stride_hz=item.stride_hz, source=item.source,
+        )
+        if result["ok"]:
+            created += 1
+        else:
+            errors.append(result["error"])
+    return {"ok": True, "created": created, "errors": errors}
+
+
+# ------------------------------------------------------------------ #
+# Temperature history & alerts (Item 3)
+# ------------------------------------------------------------------ #
+
+@router.get("/horses/{epc}/temperature-history")
+def temperature_history(epc: str, limit: int = 50, db: Session = Depends(get_db)):
+    epc = epc.strip().upper()
+    if not crud.get_horse(db, epc):
+        raise HTTPException(404, f"Horse '{epc}' not found")
+    records = crud.get_temperature_history(db, epc, limit=min(limit, 200))
+    return {
+        "epc": epc,
+        "readings": [
+            {
+                "id": r.id,
+                "scanned_at": r.scanned_at.isoformat() if r.scanned_at else None,
+                "temperature_c": r.temperature_c,
+                "location": r.location,
+                "scanned_by": r.scanned_by,
+                "race_id": r.race_id,
+            }
+            for r in records
+        ],
+    }
+
+
+@router.get("/horses/{epc}/temperature-alerts")
+def temperature_alerts(epc: str, db: Session = Depends(get_db)):
+    epc = epc.strip().upper()
+    if not crud.get_horse(db, epc):
+        raise HTTPException(404, f"Horse '{epc}' not found")
+    records = crud.get_temperature_alerts(db, epc)
+    return {
+        "epc": epc,
+        "alert_count": len(records),
+        "alerts": [
+            {
+                "id": r.id,
+                "scanned_at": r.scanned_at.isoformat() if r.scanned_at else None,
+                "temperature_c": r.temperature_c,
+                "severity": "red" if r.temperature_c >= 39.0 or r.temperature_c <= 37.0 else "amber",
+                "location": r.location,
+                "race_id": r.race_id,
             }
             for r in records
         ],

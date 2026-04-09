@@ -35,3 +35,12 @@ export const getHorseCheckins = (epc) =>
 
 export const getHorseTestBarn = (epc) =>
   client.get(`/horses/${epc}/testbarn`).then((r) => r.data.test_barn_records)
+
+export const getHorseBiosensor = (epc, limit = 200) =>
+  client.get(`/horses/${epc}/biosensor`, { params: { limit } }).then((r) => r.data.readings)
+
+export const getHorseTemperatureHistory = (epc) =>
+  client.get(`/horses/${epc}/temperature-history`).then((r) => r.data.readings)
+
+export const getHorseTemperatureAlerts = (epc) =>
+  client.get(`/horses/${epc}/temperature-alerts`).then((r) => r.data)
