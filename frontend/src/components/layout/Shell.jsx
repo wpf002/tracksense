@@ -89,16 +89,16 @@ export default function Shell() {
 
         {/* User info + logout */}
         <div className="px-4 py-3 border-t border-border">
-          <p className="text-xs text-text-primary font-timing truncate">{username}</p>
-          <span
-            className={`text-xs font-timing font-bold uppercase tracking-wide px-1 py-0.5 border ${
-              role === 'admin'
-                ? 'border-amber-700 text-amber-400'
-                : 'border-border text-text-muted'
-            }`}
-          >
-            {role || 'viewer'}
-          </span>
+          <p className="text-xs text-text-primary font-timing truncate">
+            {username}
+            <span className="text-text-muted">
+              {' · '}
+              {(() => {
+                const r = role || 'viewer'
+                return r.charAt(0).toUpperCase() + r.slice(1)
+              })()}
+            </span>
+          </p>
           <button
             onClick={handleLogout}
             className="mt-2 w-full text-xs font-timing tracking-widest uppercase text-text-muted border border-border py-1 hover:border-red-700 hover:text-red-400 transition-colors"

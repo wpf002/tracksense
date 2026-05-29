@@ -68,6 +68,38 @@ if os.path.exists(db):
         con.commit()
         print("[schema] Created biosensor_readings table.")
 
+    # workout_records — exercise-timing columns (rider/clocker/splits)
+    cols = [r[1] for r in con.execute("PRAGMA table_info(workout_records)").fetchall()]
+    workout_add = {
+        "rider_name": "VARCHAR(128)",
+        "clocker_name": "VARCHAR(128)",
+        "timekeeper_name": "VARCHAR(128)",
+        "splits_json": "TEXT",
+        "source": "VARCHAR(32) NOT NULL DEFAULT 'manual'",
+    }
+    for col, decl in workout_add.items():
+        if col not in cols:
+            con.execute(f"ALTER TABLE workout_records ADD COLUMN {col} {decl}")
+            con.commit()
+            print(f"[schema] Added {col} column to workout_records.")
+
+    # break_records table — starting-gate break analysis
+    if "break_records" not in tables:
+        con.execute("""
+            CREATE TABLE break_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                horse_epc VARCHAR NOT NULL REFERENCES horses(epc),
+                race_id INTEGER REFERENCES races(id),
+                reaction_ms INTEGER NOT NULL,
+                verdict VARCHAR(16) NOT NULL,
+                baseline_delta_ms INTEGER,
+                recorded_at DATETIME NOT NULL,
+                source VARCHAR(32) NOT NULL DEFAULT 'race'
+            )
+        """)
+        con.commit()
+        print("[schema] Created break_records table.")
+
     con.close()
 PYEOF
 

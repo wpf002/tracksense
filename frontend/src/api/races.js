@@ -38,3 +38,19 @@ export const pauseSimulation = () =>
 
 export const resumeSimulation = () =>
   client.post('/race/simulate/resume').then((r) => r.data)
+
+export const quickBuild = (body) =>
+  client.post('/race/quick-build', body).then((r) => r.data)
+
+// ── Morning works (workout simulation) ──────────────────────────────
+export const simulateWorkout = (body) =>
+  client.post('/workout/simulate', body).then((r) => r.data)
+
+export const getWorkoutState = () =>
+  client.get('/workout/state').then((r) => r.data)
+
+export const getWorkoutStatus = () =>
+  client.get('/workout/status').then((r) => r.data)
+
+export const saveWorkout = () =>
+  client.post('/workout/simulate/save').then((r) => r.data)

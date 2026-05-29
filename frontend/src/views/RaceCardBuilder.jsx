@@ -3,7 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listVenues, createVenue, getVenue, addGate } from '../api/venues'
 import { getHorse, listHorses } from '../api/horses'
-import { registerHorses } from '../api/races'
+import { registerHorses, quickBuild } from '../api/races'
+
+// Common race distances (metres) offered in the quick builder
+const DISTANCE_PRESETS = [1000, 1100, 1200, 1400, 1600, 1800, 2000, 2400]
+
+// 1 furlong = 201.168 m
+const toFurlongs = (m) => (m / 201.168).toFixed(1)
 
 // ──────────────────────────────────────────────
 // Step indicator
@@ -520,9 +526,126 @@ function StepRegister({ venueId, field }) {
 }
 
 // ──────────────────────────────────────────────
-// Main RaceCardBuilder
+// Quick builder — track + distance + field size, random horses
 // ──────────────────────────────────────────────
-export default function RaceCardBuilder() {
+function QuickBuilder() {
+  const navigate = useNavigate()
+  const [venueId, setVenueId] = useState('')
+  const [distance, setDistance] = useState('')
+  const [numHorses, setNumHorses] = useState(8)
+  const [error, setError] = useState(null)
+
+  const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: listVenues })
+  const { data: horses = [] } = useQuery({ queryKey: ['horses'], queryFn: listHorses })
+  const { data: venueDetail } = useQuery({
+    queryKey: ['venue', venueId],
+    queryFn: () => getVenue(venueId),
+    enabled: !!venueId,
+  })
+
+  // Default the venue + distance once data loads
+  useEffect(() => {
+    if (!venueId && venues.length) setVenueId(venues[0].venue_id)
+  }, [venues]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const total = venueDetail?.total_distance_m
+  const distanceOptions = total
+    ? [...DISTANCE_PRESETS.filter((d) => d <= total), Math.round(total)]
+        .filter((d, i, a) => a.indexOf(d) === i)
+        .sort((a, b) => a - b)
+    : DISTANCE_PRESETS
+  useEffect(() => {
+    if (total) setDistance(String(Math.round(total)))
+  }, [total])
+
+  const maxHorses = Math.min(24, horses.length || 24)
+
+  const buildMut = useMutation({
+    mutationFn: () =>
+      quickBuild({
+        venue_id: venueId,
+        num_horses: Number(numHorses),
+        distance_m: distance ? Number(distance) : null,
+      }),
+    onSuccess: () => navigate('/live'),
+    onError: (err) => setError(err.response?.data?.detail ?? 'Build failed'),
+  })
+
+  return (
+    <div className="flex justify-center pt-10">
+      <div className="border border-border bg-surface p-8 w-full max-w-2xl">
+        <h2 className="text-lg font-bold uppercase tracking-widest text-text-primary mb-1">
+          Quick Race
+        </h2>
+        <p className="text-xs text-text-muted font-timing tracking-wide mb-6">
+          Pick a track, a distance, and a field size — horses are drawn at random.
+        </p>
+
+        <div className="flex flex-col gap-5">
+          {/* Track */}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs text-text-muted uppercase tracking-wider">Track</span>
+            <select
+              value={venueId}
+              onChange={(e) => setVenueId(e.target.value)}
+              className="bg-bg border border-border text-text-primary px-3 py-3 text-base focus:outline-none focus:border-accent"
+            >
+              {venues.map((v) => (
+                <option key={v.venue_id} value={v.venue_id}>
+                  {v.name} ({v.total_distance_m}m · {toFurlongs(v.total_distance_m)}f)
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* Distance */}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs text-text-muted uppercase tracking-wider">Distance</span>
+            <select
+              value={distance}
+              onChange={(e) => setDistance(e.target.value)}
+              className="bg-bg border border-border text-text-primary px-3 py-3 text-base font-timing focus:outline-none focus:border-accent"
+            >
+              {distanceOptions.map((d) => (
+                <option key={d} value={d}>{d}m · {toFurlongs(d)}f</option>
+              ))}
+            </select>
+          </label>
+
+          {/* Number of horses */}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs text-text-muted uppercase tracking-wider">
+              Number of Horses (max {maxHorses})
+            </span>
+            <input
+              type="number"
+              min={2}
+              max={maxHorses}
+              value={numHorses}
+              onChange={(e) => setNumHorses(e.target.value)}
+              className="bg-bg border border-border text-text-primary px-3 py-3 text-base font-timing focus:outline-none focus:border-accent w-32"
+            />
+          </label>
+
+          <button
+            onClick={() => { setError(null); buildMut.mutate() }}
+            disabled={!venueId || !numHorses || buildMut.isPending}
+            className="mt-2 px-6 py-3 text-sm font-bold uppercase tracking-widest bg-accent text-bg hover:bg-accent-dim transition-colors disabled:opacity-40 w-full"
+          >
+            {buildMut.isPending ? 'Building…' : 'Build Race & Go Live →'}
+          </button>
+
+          {error && <p className="text-red-400 text-xs font-timing">{error}</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Advanced wizard (the original 3-step flow)
+// ──────────────────────────────────────────────
+function AdvancedWizard() {
   const [step, setStep] = useState(1)
   const [selectedVenueId, setSelectedVenueId] = useState(null)
   const [field, setField] = useState([])
@@ -535,12 +658,7 @@ export default function RaceCardBuilder() {
   const canAdvance2 = field.length > 0
 
   return (
-    <div className="p-6">
-      <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase mb-6">
-        Race Builder
-      </h1>
-
-      <div className="border border-border bg-surface">
+    <div className="border border-border bg-surface">
         {/* Step 1 */}
         <StepHeader step={1} current={step} />
         {step === 1 && (
@@ -596,7 +714,31 @@ export default function RaceCardBuilder() {
             </div>
           </>
         )}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Main RaceCardBuilder — quick form by default, advanced wizard on demand
+// ──────────────────────────────────────────────
+export default function RaceCardBuilder() {
+  const [advanced, setAdvanced] = useState(false)
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase">
+          Race Builder
+        </h1>
+        <button
+          onClick={() => setAdvanced((a) => !a)}
+          className="text-xs text-text-muted hover:text-accent font-timing uppercase tracking-widest"
+        >
+          {advanced ? '← Quick Build' : 'Advanced (venues & gates) →'}
+        </button>
       </div>
+
+      {advanced ? <AdvancedWizard /> : <QuickBuilder />}
     </div>
   )
 }

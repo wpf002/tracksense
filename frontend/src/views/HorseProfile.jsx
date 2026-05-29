@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
@@ -9,10 +9,27 @@ import {
   getHorseSectionals, getHorseVet, compareHorses,
   getHorseWorkouts, getHorseCheckins, getHorseTestBarn,
   getHorseBiosensor, getHorseTemperatureAlerts,
+  getHorseBreaks, addWorkout,
 } from '../api/horses'
+import { listVenues } from '../api/venues'
+import {
+  simulateWorkout, getWorkoutStatus, getWorkoutState, saveWorkout,
+} from '../api/races'
 import DataTable from '../components/ui/DataTable'
 import TimingDisplay from '../components/ui/TimingDisplay'
 import StatBadge from '../components/ui/StatBadge'
+
+// Gate-break verdict → display colour
+const BREAK_VERDICT_STYLE = {
+  anticipated: 'text-red-400 border-red-700 bg-red-950',
+  good: 'text-green-400 border-green-700 bg-green-950',
+  slow: 'text-amber-400 border-amber-700 bg-amber-950',
+}
+const BREAK_VERDICT_LABEL = {
+  anticipated: 'TOO FAST',
+  good: 'GOOD',
+  slow: 'SLOW',
+}
 
 const ACCENT = '#f59e0b'
 
@@ -259,6 +276,130 @@ function HeadToHead({ epc1 }) {
 // ──────────────────────────────────────────────
 // Horse Profile Page
 // ──────────────────────────────────────────────
+// Compact venue picker + "Run Timed Work" button for the workout simulator
+function WorkoutSimControl({ venues, disabled, onRun }) {
+  const [venueId, setVenueId] = useState('')
+  useEffect(() => {
+    if (!venueId && venues.length) setVenueId(venues[0].venue_id)
+  }, [venues]) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        value={venueId}
+        onChange={(e) => setVenueId(e.target.value)}
+        disabled={disabled}
+        className="bg-bg border border-border text-text-muted text-xs font-timing px-1.5 py-1 focus:outline-none focus:border-accent disabled:opacity-40"
+      >
+        {venues.map((v) => (
+          <option key={v.venue_id} value={v.venue_id}>{v.venue_id}</option>
+        ))}
+      </select>
+      <button
+        onClick={() => venueId && onRun(venueId)}
+        disabled={disabled || !venueId}
+        className="text-xs font-timing uppercase tracking-widest border border-green-700 text-green-400 hover:bg-green-950 px-2 py-1 transition-colors disabled:opacity-40"
+      >
+        {disabled ? 'Working…' : '▶ Run Timed Work'}
+      </button>
+    </div>
+  )
+}
+
+// Manual clocker-entry modal
+function LogWorkoutModal({ epc, onClose, onSaved }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [form, setForm] = useState({
+    workout_date: today, distance_m: '800', surface: 'Dirt', duration_ms_s: '',
+    track_condition: 'Fast', trainer_name: '', rider_name: '', clocker_name: '', notes: '',
+  })
+  const [error, setError] = useState(null)
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+
+  const mut = useMutation({
+    mutationFn: () => addWorkout(epc, {
+      workout_date: form.workout_date,
+      distance_m: Number(form.distance_m),
+      surface: form.surface || null,
+      duration_ms: form.duration_ms_s ? Math.round(Number(form.duration_ms_s) * 1000) : null,
+      track_condition: form.track_condition || null,
+      trainer_name: form.trainer_name || null,
+      rider_name: form.rider_name || null,
+      clocker_name: form.clocker_name || null,
+      notes: form.notes || null,
+    }),
+    onSuccess: () => { onSaved(); onClose() },
+    onError: (err) => setError(err.response?.data?.detail ?? 'Save failed'),
+  })
+
+  const field = 'bg-bg border border-border text-text-primary px-2 py-1.5 text-sm focus:outline-none focus:border-accent'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="bg-surface border border-border w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-widest text-text-primary">Log Workout</span>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-lg leading-none">×</button>
+        </div>
+        <div className="p-4 grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 col-span-2">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Date</span>
+            <input type="date" value={form.workout_date} onChange={set('workout_date')} className={field} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Distance (m)</span>
+            <input type="number" value={form.distance_m} onChange={set('distance_m')} className={`${field} font-timing`} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Time (s)</span>
+            <input type="number" step="0.1" placeholder="optional" value={form.duration_ms_s} onChange={set('duration_ms_s')} className={`${field} font-timing`} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Surface</span>
+            <select value={form.surface} onChange={set('surface')} className={field}>
+              {['Dirt', 'Turf', 'Synthetic'].map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Condition</span>
+            <select value={form.track_condition} onChange={set('track_condition')} className={field}>
+              {['Fast', 'Good', 'Soft', 'Heavy'].map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Exercise Rider</span>
+            <input value={form.rider_name} onChange={set('rider_name')} className={field} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Clocker</span>
+            <input value={form.clocker_name} onChange={set('clocker_name')} className={field} />
+          </label>
+          <label className="flex flex-col gap-1 col-span-2">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Trainer</span>
+            <input value={form.trainer_name} onChange={set('trainer_name')} className={field} />
+          </label>
+          <label className="flex flex-col gap-1 col-span-2">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Notes</span>
+            <input value={form.notes} onChange={set('notes')} className={field} />
+          </label>
+        </div>
+        {error && <p className="px-4 text-red-400 text-xs font-timing">{error}</p>}
+        <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
+          <button onClick={onClose} className="text-xs font-timing uppercase tracking-widest border border-border text-text-muted px-3 py-1.5 hover:text-text-primary">
+            Cancel
+          </button>
+          <button
+            onClick={() => { setError(null); mut.mutate() }}
+            disabled={mut.isPending || !form.workout_date || !form.distance_m}
+            className="text-xs font-timing font-bold uppercase tracking-widest bg-accent text-bg px-4 py-1.5 hover:bg-accent-dim disabled:opacity-40"
+          >
+            {mut.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function HorseDetail({ epc }) {
   const [showAllTestBarn, setShowAllTestBarn] = useState(false)
 
@@ -311,6 +452,45 @@ function HorseDetail({ epc }) {
     queryFn: () => getHorseTemperatureAlerts(epc),
     enabled: !!horse,
   })
+  const { data: breaks = [], isLoading: loadingBreaks, error: breaksError } = useQuery({
+    queryKey: ['horse-breaks', epc],
+    queryFn: () => getHorseBreaks(epc),
+    enabled: !!horse,
+  })
+  const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: listVenues })
+
+  const qc = useQueryClient()
+  const [expandedWorkoutId, setExpandedWorkoutId] = useState(null)
+  const [showLogWorkout, setShowLogWorkout] = useState(false)
+
+  // ── Workout simulation ("Run Timed Work") ──
+  const [workSimRunning, setWorkSimRunning] = useState(false)
+  const [workSimMsg, setWorkSimMsg] = useState(null)
+
+  const workSimMut = useMutation({
+    mutationFn: (body) => simulateWorkout(body),
+    onSuccess: () => { setWorkSimRunning(true); setWorkSimMsg('Work in progress…') },
+    onError: (err) => setWorkSimMsg(err.response?.data?.detail ?? 'Could not start work'),
+  })
+
+  // Poll the workout tracker while a work is running; save + refresh on finish
+  useEffect(() => {
+    if (!workSimRunning) return
+    const id = setInterval(async () => {
+      try {
+        const st = await getWorkoutStatus()
+        if (st.status === 'finished') {
+          clearInterval(id)
+          await saveWorkout()
+          setWorkSimRunning(false)
+          setWorkSimMsg('✓ Work recorded')
+          qc.invalidateQueries({ queryKey: ['horse-workouts', epc] })
+          qc.invalidateQueries({ queryKey: ['horse-breaks', epc] })
+        }
+      } catch (_) { /* keep polling */ }
+    }, 1500)
+    return () => clearInterval(id)
+  }, [workSimRunning, epc, qc])
 
   if (loadingHorse)
     return <p className="p-6 text-text-muted text-xs font-timing tracking-widest">Loading...</p>
@@ -424,19 +604,101 @@ function HorseDetail({ epc }) {
       ),
     },
     {
-      key: 'trainer_name',
-      label: 'Trainer',
+      key: 'rider_name',
+      label: 'Rider',
       render: (r) => (
-        <span className="text-xs text-text-muted">{r.trainer_name ?? '—'}</span>
+        <span className="text-xs text-text-muted">{r.rider_name ?? '—'}</span>
       ),
     },
     {
-      key: 'notes',
-      label: 'Notes',
+      key: 'clocker_name',
+      label: 'Clocker',
       render: (r) => (
-        <span className="text-xs text-text-muted">{r.notes ?? '—'}</span>
+        <span className="text-xs text-text-muted">{r.clocker_name ?? '—'}</span>
       ),
     },
+    {
+      key: 'source',
+      label: 'Source',
+      render: (r) => (
+        <span className={`text-[10px] font-timing font-bold uppercase tracking-wide px-1.5 py-0.5 border ${
+          r.source === 'sim'
+            ? 'border-accent text-accent'
+            : 'border-border text-text-muted'
+        }`}>
+          {r.source === 'sim' ? 'SIM' : 'MANUAL'}
+        </span>
+      ),
+    },
+    {
+      key: 'splits',
+      label: 'Splits',
+      render: (r) => {
+        let n = 0
+        try { n = r.splits_json ? JSON.parse(r.splits_json).length : 0 } catch (_) { n = 0 }
+        if (!n) return <span className="text-xs text-text-muted">—</span>
+        return (
+          <span className="text-xs font-timing text-accent">
+            {expandedWorkoutId === r.id ? '▾' : '▸'} {n}
+          </span>
+        )
+      },
+    },
+  ]
+
+  const breakColumns = [
+    {
+      key: 'recorded_at',
+      label: 'Date',
+      render: (r) => (
+        <span className="font-timing text-xs text-text-muted">
+          {r.recorded_at ? new Date(r.recorded_at).toLocaleDateString() : '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'reaction_ms',
+      label: 'Reaction',
+      render: (r) => (
+        <span className="font-timing text-text-primary">{(r.reaction_ms / 1000).toFixed(3)}s</span>
+      ),
+    },
+    {
+      key: 'verdict',
+      label: 'Verdict',
+      render: (r) => (
+        <span className={`text-[10px] font-timing font-bold uppercase tracking-wide px-1.5 py-0.5 border ${BREAK_VERDICT_STYLE[r.verdict] ?? 'border-border text-text-muted'}`}>
+          {BREAK_VERDICT_LABEL[r.verdict] ?? r.verdict}
+        </span>
+      ),
+    },
+    {
+      key: 'baseline_delta_ms',
+      label: 'vs Baseline',
+      render: (r) => {
+        if (r.baseline_delta_ms == null) return <span className="text-xs text-text-muted">—</span>
+        const d = r.baseline_delta_ms
+        return (
+          <span className={`font-timing text-xs ${d < 0 ? 'text-green-400' : d > 0 ? 'text-amber-400' : 'text-text-muted'}`}>
+            {d > 0 ? '+' : ''}{(d / 1000).toFixed(3)}s
+          </span>
+        )
+      },
+    },
+    {
+      key: 'source',
+      label: 'Source',
+      render: (r) => (
+        <span className="text-[10px] font-timing uppercase tracking-wide text-text-muted">{r.source}</span>
+      ),
+    },
+  ]
+
+  const splitColumns = [
+    { key: 'segment', label: 'Segment', render: (s) => <span className="text-xs text-text-primary">{s.segment}</span> },
+    { key: 'distance_m', label: 'Distance', render: (s) => <span className="font-timing text-xs text-text-muted">{s.distance_m}m</span> },
+    { key: 'elapsed_str', label: 'Split', render: (s) => <span className="font-timing text-xs text-text-primary">{s.elapsed_str ?? `${(s.elapsed_ms / 1000).toFixed(2)}s`}</span> },
+    { key: 'speed_kmh', label: 'Speed', render: (s) => <span className="font-timing text-xs text-text-muted">{s.speed_kmh != null ? `${s.speed_kmh} km/h` : '—'}</span> },
   ]
 
   const vetColumns = [
@@ -650,18 +912,18 @@ function HorseDetail({ epc }) {
           <p className="px-4 py-3 text-text-muted text-xs font-timing">No sectional data available</p>
         ) : (
           <>
-            <div style={{ height: 200, background: '#111111' }} className="border-b border-border p-2">
+            <div style={{ height: 280, background: '#111111' }} className="border-b border-border p-2">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={sectionals} margin={{ top: 4, right: 8, left: -10, bottom: 4 }}>
+                <BarChart data={sectionals} margin={{ top: 4, right: 8, left: -10, bottom: 70 }}>
                   <XAxis
                     dataKey="segment"
-                    tick={{ fill: '#6b7280', fontSize: 10 }}
+                    tick={{ fill: '#6b7280', fontSize: 9 }}
                     tickLine={false}
                     axisLine={{ stroke: '#2a2a2a' }}
                     interval={0}
-                    angle={-20}
+                    angle={-40}
                     textAnchor="end"
-                    height={40}
+                    height={90}
                   />
                   <YAxis
                     tick={{ fill: '#6b7280', fontSize: 10, fontFamily: 'monospace' }}
@@ -687,16 +949,97 @@ function HorseDetail({ epc }) {
         )}
       </SectionShell>
 
-      {/* ── SECTION 5: Workout Log ── */}
-      <SectionShell title="Workout Log — Last 15">
-        {loadingWorkouts ? <SectionLoading /> : workoutsError ? <SectionError /> : (
-          <DataTable
-            columns={workoutColumns}
-            rows={workouts.map((r) => ({ ...r }))}
-            emptyMessage="No workout records"
-          />
+      {/* ── SECTION 4.5: Gate Break ── */}
+      <SectionShell title="Gate Break — Start Reaction">
+        {loadingBreaks ? <SectionLoading /> : breaksError ? <SectionError /> : breaks.length === 0 ? (
+          <p className="px-4 py-3 text-text-muted text-xs font-timing">No break data available</p>
+        ) : (
+          <>
+            <div className="flex items-stretch border-b border-border flex-wrap">
+              <div className="px-4 py-3 border-r border-border">
+                <p className="text-[10px] uppercase tracking-widest text-text-muted">Latest Verdict</p>
+                <span className={`mt-1 inline-block text-xs font-timing font-bold uppercase tracking-wide px-2 py-0.5 border ${BREAK_VERDICT_STYLE[breaks[0].verdict] ?? 'border-border text-text-muted'}`}>
+                  {BREAK_VERDICT_LABEL[breaks[0].verdict] ?? breaks[0].verdict}
+                </span>
+              </div>
+              <StatBadge label="Reaction" value={`${(breaks[0].reaction_ms / 1000).toFixed(3)}s`} />
+              <StatBadge
+                label="vs Baseline"
+                value={breaks[0].baseline_delta_ms == null
+                  ? '—'
+                  : `${breaks[0].baseline_delta_ms > 0 ? '+' : ''}${(breaks[0].baseline_delta_ms / 1000).toFixed(3)}s`}
+                variant={breaks[0].baseline_delta_ms != null && breaks[0].baseline_delta_ms < 0 ? 'accent' : 'muted'}
+              />
+            </div>
+            <DataTable
+              columns={breakColumns}
+              rows={breaks.slice(0, 10).map((r) => ({ ...r }))}
+              emptyMessage="No break records"
+            />
+          </>
         )}
       </SectionShell>
+
+      {/* ── SECTION 5: Workout Log ── */}
+      <div className="border border-border bg-surface mb-6">
+        <div className="px-4 py-2 border-b border-border flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <div className="w-0.5 h-3.5 bg-accent flex-shrink-0" />
+            <span className="text-xs font-semibold uppercase tracking-widest text-text-muted">
+              Workout Log — Last 15
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            {workSimMsg && <span className="text-xs font-timing text-text-muted">{workSimMsg}</span>}
+            <WorkoutSimControl
+              venues={venues}
+              disabled={workSimRunning || workSimMut.isPending}
+              onRun={(venue_id) =>
+                workSimMut.mutate({
+                  venue_id,
+                  horse_ids: [epc],
+                  rider_name: 'Exercise Rider',
+                  clocker_name: 'Track Clocker',
+                })
+              }
+            />
+            <button
+              onClick={() => setShowLogWorkout(true)}
+              className="text-xs font-timing uppercase tracking-widest border border-border text-text-muted hover:border-accent hover:text-accent px-2 py-1 transition-colors"
+            >
+              + Log Workout
+            </button>
+          </div>
+        </div>
+        {loadingWorkouts ? <SectionLoading /> : workoutsError ? <SectionError /> : (
+          <>
+            <DataTable
+              columns={workoutColumns}
+              rows={workouts.map((r) => ({ ...r }))}
+              onRowClick={(r) => setExpandedWorkoutId(expandedWorkoutId === r.id ? null : r.id)}
+              emptyMessage="No workout records"
+            />
+            {expandedWorkoutId != null && (() => {
+              const w = workouts.find((x) => x.id === expandedWorkoutId)
+              let splits = []
+              try { splits = w?.splits_json ? JSON.parse(w.splits_json) : [] } catch (_) { splits = [] }
+              if (!splits.length) return null
+              return (
+                <div className="border-t border-border bg-bg">
+                  <p className="px-4 pt-3 text-[10px] uppercase tracking-widest text-text-muted">
+                    Sectional splits — {w.workout_date}
+                  </p>
+                  <DataTable
+                    columns={splitColumns}
+                    rows={splits.map((s, i) => ({ ...s, id: i }))}
+                    emptyMessage=""
+                  />
+                </div>
+              )
+            })()}
+          </>
+        )}
+      </div>
 
       {/* ── SECTION 6: Vet Records ── */}
       <SectionShell title="Vet Records">
@@ -829,6 +1172,14 @@ function HorseDetail({ epc }) {
 
       {/* ── SECTION 11: Head to Head ── */}
       <HeadToHead epc1={epc} />
+
+      {showLogWorkout && (
+        <LogWorkoutModal
+          epc={epc}
+          onClose={() => setShowLogWorkout(false)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['horse-workouts', epc] })}
+        />
+      )}
     </div>
   )
 }

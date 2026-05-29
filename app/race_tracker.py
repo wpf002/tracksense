@@ -493,3 +493,17 @@ def get_tracker() -> Optional[RaceTracker]:
 def set_tracker(t: Optional[RaceTracker]):
     global tracker
     tracker = t
+
+
+# Separate tracker for morning-works (workout) simulations. Kept distinct from
+# the race tracker so timing a work never clobbers a registered/live race.
+workout_tracker: Optional[RaceTracker] = None
+
+
+def get_workout_tracker() -> Optional[RaceTracker]:
+    return workout_tracker
+
+
+def set_workout_tracker(t: Optional[RaceTracker]):
+    global workout_tracker
+    workout_tracker = t

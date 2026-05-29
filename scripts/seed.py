@@ -33,7 +33,9 @@ from app.models import (
     VenueRecord, GateRecord, TrackPathPoint,
     Race, RaceEntry, GateRead, RaceResult,
     WorkoutRecord, CheckInRecord, TestBarnRecord,
+    BreakRecord,
 )
+from app.break_analysis import classify_break
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -71,6 +73,12 @@ JOCKEYS = [
 ]
 
 VET_NAMES = ["Dr. Sarah Chen", "Dr. Marcus Webb", "Dr. Priya Nair"]
+
+# Clockers / timekeepers who hand-time morning works
+CLOCKERS = [
+    "Hank Goldberg",  "Toby Callet",   "Maria Sandoval",
+    "Eddie Donnelly", "Ray Paulick",   "Dottie Shirreffs",
+]
 
 CHECKIN_OFFICIALS = ["Head Steward", "Assistant Steward", "Gate Official"]
 CHECKIN_LOCATIONS  = ["Paddock Check-In", "Mounting Yard", "Pre-Parade Ring"]
@@ -308,7 +316,7 @@ def weighted_sample_no_replacement(population: list, weights: list, k: int) -> l
 
 def clear_tables(session) -> None:
     for table in [
-        "biosensor_readings",
+        "break_records", "biosensor_readings",
         "test_barn_records", "checkin_records", "workout_records",
         "race_results", "gate_reads", "race_entries", "races",
         "track_path_points", "gate_records", "venue_records",
@@ -439,6 +447,8 @@ def seed_races(session, venue_map: dict, today: date) -> tuple:
     start        = today - timedelta(days=90)
     race_records = []
     venue_stats  = {v["venue_id"]: {"days": set(), "races": 0, "entries": 0} for v in VENUES}
+    # Track each horse's break-reaction history so baseline deltas are realistic
+    break_history: dict[str, list[int]] = {}
 
     current = start
     while current < today:
@@ -507,6 +517,23 @@ def seed_races(session, venue_map: dict, today: date) -> tuple:
                         elapsed_ms=times[-1],
                     ))
 
+                    # Starting-gate break: synthetic reaction time per starter
+                    reaction_ms = max(0, int(random.gauss(320, 120)))
+                    prior = break_history.get(epc, [])
+                    baseline_delta = (
+                        int(reaction_ms - (sum(prior) / len(prior))) if prior else None
+                    )
+                    session.add(BreakRecord(
+                        race_id=race.id,
+                        horse_epc=epc,
+                        reaction_ms=reaction_ms,
+                        verdict=classify_break(reaction_ms),
+                        baseline_delta_ms=baseline_delta,
+                        recorded_at=race_dt,
+                        source="race",
+                    ))
+                    break_history.setdefault(epc, []).append(reaction_ms)
+
                 last_ms = horse_times[-1][1][-1]
                 race_records.append({
                     "race_id":     race.id,
@@ -572,6 +599,9 @@ def seed_workouts(session, race_records: list, today: date) -> int:
                 duration_ms=duration_ms,
                 track_condition=random.choice(["Fast", "Fast", "Good", "Soft"]),
                 trainer_name=trainer_name,
+                rider_name=random.choice(JOCKEYS),
+                clocker_name=random.choice(CLOCKERS),
+                source="manual",
                 notes=note,
             ))
             total += 1

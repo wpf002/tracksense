@@ -56,6 +56,7 @@ class Horse(Base):
     checkins: Mapped[list["CheckInRecord"]] = relationship("CheckInRecord", back_populates="horse", cascade="all, delete-orphan")
     test_barn_records: Mapped[list["TestBarnRecord"]] = relationship("TestBarnRecord", back_populates="horse", cascade="all, delete-orphan")
     biosensor_readings: Mapped[list["BiosensorReading"]] = relationship("BiosensorReading", back_populates="horse", cascade="all, delete-orphan")
+    breaks: Mapped[list["BreakRecord"]] = relationship("BreakRecord", back_populates="horse", cascade="all, delete-orphan")
 
 
 class Owner(Base):
@@ -208,6 +209,11 @@ class WorkoutRecord(Base):
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)     # workout time in ms
     track_condition: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # Fast | Good | Soft | Heavy
     trainer_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    rider_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)       # exercise rider
+    clocker_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)     # who clocked the work
+    timekeeper_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    splits_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)             # JSON list of sectional dicts
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")   # manual | sim
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -364,3 +370,23 @@ class BiosensorReading(Base):
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="wearable")
 
     horse: Mapped["Horse"] = relationship("Horse", back_populates="biosensor_readings")
+
+
+# ------------------------------------------------------------------ #
+# Gate-break analysis — how a horse breaks from the starting gate
+# ------------------------------------------------------------------ #
+
+class BreakRecord(Base):
+    __tablename__ = "break_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
+    race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True, index=True)
+    reaction_ms: Mapped[int] = mapped_column(Integer, nullable=False)                  # time from gun to clearing start gate
+    verdict: Mapped[str] = mapped_column(String(16), nullable=False)                   # anticipated | good | slow
+    baseline_delta_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)   # vs horse's own prior average
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
+                                                   default=lambda: datetime.now(timezone.utc))
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="race")    # race | sim
+
+    horse: Mapped["Horse"] = relationship("Horse", back_populates="breaks")

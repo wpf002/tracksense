@@ -30,6 +30,12 @@ export const compareHorses = (epc1, epc2) =>
 export const getHorseWorkouts = (epc) =>
   client.get(`/horses/${epc}/workouts`).then((r) => r.data.workouts)
 
+export const addWorkout = (epc, body) =>
+  client.post(`/horses/${epc}/workouts`, body).then((r) => r.data)
+
+export const getHorseBreaks = (epc) =>
+  client.get(`/horses/${epc}/breaks`).then((r) => r.data.breaks)
+
 export const getHorseCheckins = (epc) =>
   client.get(`/horses/${epc}/checkins`).then((r) => r.data.checkins)
 

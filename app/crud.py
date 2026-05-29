@@ -1001,3 +1001,69 @@ def get_temperature_alerts(db: Session, horse_epc: str) -> list[CheckInRecord]:
         .order_by(CheckInRecord.scanned_at.desc())
         .all()
     )
+
+
+# ------------------------------------------------------------------ #
+# Gate-break records — starting-gate break analysis
+# ------------------------------------------------------------------ #
+
+from app.models import BreakRecord
+from app.break_analysis import classify_break
+
+
+def add_break_record(
+    db: Session,
+    horse_epc: str,
+    reaction_ms: int,
+    race_id: Optional[int] = None,
+    recorded_at: Optional[datetime] = None,
+    source: str = "race",
+) -> dict:
+    """
+    Record a starting-gate break for a horse. The verdict is derived from
+    fixed reaction-time bands; baseline_delta_ms compares this reaction to
+    the horse's mean reaction over its prior recorded breaks. Idempotent per
+    (race_id, horse_epc) when race_id is provided.
+    """
+    if not db.get(Horse, horse_epc):
+        return {"ok": False, "error": f"Horse '{horse_epc}' not found"}
+
+    if race_id is not None:
+        existing = (
+            db.query(BreakRecord)
+            .filter_by(race_id=race_id, horse_epc=horse_epc)
+            .first()
+        )
+        if existing:
+            return {"ok": True, "id": existing.id, "duplicate": True}
+
+    # Baseline = mean reaction over this horse's prior breaks (excludes this race)
+    prior_q = db.query(BreakRecord.reaction_ms).filter(BreakRecord.horse_epc == horse_epc)
+    if race_id is not None:
+        prior_q = prior_q.filter(BreakRecord.race_id != race_id)
+    prior = [r[0] for r in prior_q.all()]
+    baseline_delta = int(reaction_ms - (sum(prior) / len(prior))) if prior else None
+
+    record = BreakRecord(
+        horse_epc=horse_epc,
+        race_id=race_id,
+        reaction_ms=reaction_ms,
+        verdict=classify_break(reaction_ms),
+        baseline_delta_ms=baseline_delta,
+        recorded_at=recorded_at or datetime.now(timezone.utc),
+        source=source,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {"ok": True, "id": record.id, "verdict": record.verdict, "baseline_delta_ms": baseline_delta}
+
+
+def get_breaks(db: Session, horse_epc: str, limit: int = 50) -> list[BreakRecord]:
+    return (
+        db.query(BreakRecord)
+        .filter_by(horse_epc=horse_epc)
+        .order_by(BreakRecord.recorded_at.desc())
+        .limit(limit)
+        .all()
+    )

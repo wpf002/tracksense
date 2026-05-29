@@ -435,19 +435,21 @@ export default function LiveRace() {
 
       {/* Track map */}
       {horses.length > 0 && venueData && (
-        <div className="border border-border mb-6">
+        <div className="border border-border mb-6 max-w-[840px] mx-auto">
           <div className="px-4 py-2 border-b border-border bg-surface">
             <span className="text-xs text-text-muted uppercase tracking-widest font-semibold">
               Track — {venueData.name}
             </span>
           </div>
-          <TrackMap
-            horses={horses}
-            totalDistanceM={venueData.total_distance_m}
-            gates={venueData.gates ?? []}
-            currentElapsedMs={displayedElapsed ?? 0}
-            venueId={venueId}
-          />
+          <div className="flex justify-center">
+            <TrackMap
+              horses={horses}
+              totalDistanceM={venueData.total_distance_m}
+              gates={venueData.gates ?? []}
+              currentElapsedMs={displayedElapsed ?? 0}
+              venueId={venueId}
+            />
+          </div>
         </div>
       )}
 

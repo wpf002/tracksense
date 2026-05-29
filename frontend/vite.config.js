@@ -13,6 +13,7 @@ export default defineConfig({
       '/webhooks': 'http://localhost:8001',
       '/health': 'http://localhost:8001',
       '/race': 'http://localhost:8001',
+      '/workout': 'http://localhost:8001',
       '/venues': 'http://localhost:8001',
       '/horses': 'http://localhost:8001',
       '/races': 'http://localhost:8001',

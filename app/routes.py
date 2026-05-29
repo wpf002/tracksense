@@ -1,5 +1,6 @@
 
 import asyncio
+import json
 import random
 import threading
 import time
@@ -16,6 +17,7 @@ from app.gate_registry import registry
 from app.race_tracker import (
     RaceTracker, HorseEntry,
     get_tracker, set_tracker,
+    get_workout_tracker, set_workout_tracker,
 )
 from app.websocket_manager import ws_manager
 from app.database import get_db
@@ -716,6 +718,68 @@ def register_horses(
     return result
 
 
+class QuickBuildRequest(BaseModel):
+    venue_id: str
+    num_horses: int = Field(..., ge=2, le=24, description="Field size — horses chosen at random")
+    distance_m: Optional[float] = Field(None, description="Race distance (metadata only in v1)")
+
+
+@router.post("/race/quick-build")
+def quick_build_race(
+    req: QuickBuildRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    One-shot race setup: pick a track + field size, draw horses at random from
+    the registry, auto-assign saddle cloths, register and arm. The user then
+    hits SIMULATE on the Live view.
+
+    Note: distance_m is recorded as metadata for display only — the simulation
+    always runs the full venue gate set (slicing gates would break the oval
+    track-map geometry). v1 limitation.
+    """
+    venue_id = req.venue_id.strip().upper()
+    venue = registry.get_venue(venue_id)
+    if not venue:
+        raise HTTPException(404, f"Venue '{venue_id}' not found.")
+    if not venue.finish_gate():
+        raise HTTPException(400, "Venue has no finish gate configured.")
+
+    pool = crud.list_horses(db, skip=0, limit=10_000)
+    if len(pool) < req.num_horses:
+        raise HTTPException(400, f"Only {len(pool)} horses in registry; need {req.num_horses}.")
+
+    field = random.sample(pool, req.num_horses)
+    entries = [
+        HorseEntry(
+            horse_id=h.epc.strip().upper(),
+            display_name=h.name,
+            saddle_cloth=str(i + 1),
+        )
+        for i, h in enumerate(field)
+    ]
+
+    t = RaceTracker(venue_id=venue_id, on_gate_event=ws_manager.broadcast_gate_event)
+    reg = t.register_horses(entries)
+    if not reg["ok"]:
+        raise HTTPException(400, reg["error"])
+    t.arm()
+    t.quick_build_distance_m = req.distance_m
+    set_tracker(t)
+
+    crud.write_audit_log(db, current_user, "quick-build", "race", venue_id,
+                         {"num_horses": req.num_horses, "distance_m": req.distance_m})
+
+    return {
+        "ok": True,
+        "venue_id": venue_id,
+        "registered": len(entries),
+        "distance_m": req.distance_m,
+        "armed": True,
+    }
+
+
 @router.post("/race/arm")
 def arm_race(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     t = get_tracker()
@@ -737,47 +801,32 @@ def reset_race(current_user: User = Depends(get_current_user), db: Session = Dep
     return {"ok": True, "reset": True}
 
 
-@router.post("/race/simulate")
-def simulate_race(_: User = Depends(get_current_user)):
+# Speed profiles: multipliers per gate segment
+_SIM_PROFILES = {
+    "pacer":    [0.92, 0.96, 1.02, 1.08, 1.12],
+    "closer":   [1.10, 1.05, 1.00, 0.95, 0.88],
+    "midfield": [1.00, 1.00, 1.00, 1.00, 1.00],
+}
+
+
+def _simulate_field(t, venue, horses) -> dict:
     """
-    Arm the registered race and run a mock simulation using the registered
-    field and venue gates. Horses are assigned speed profiles randomly and
-    driven through each gate with realistic timing in background threads.
+    Drive a field of horses through the venue's gates with realistic timing,
+    in background threads. Honours the tracker's pause/stop events. Shared by
+    the race simulator and the workout simulator.
+
+    Each horse is given a starting-gate break reaction time that offsets its
+    whole timeline — a faster reaction clears the start gate sooner. Returns
+    {horse_id: reaction_ms} so callers can persist gate-break analysis.
     """
-    t = get_tracker()
-    if not t:
-        raise HTTPException(400, "No race registered. Use Race Builder first.")
-    if t.status not in ("idle", "armed"):
-        raise HTTPException(400, f"Cannot simulate in '{t.status}' state. Reset first.")
-
-    arm_result = t.arm()
-    if not arm_result["ok"]:
-        raise HTTPException(400, arm_result["error"])
-
-    venue = registry.get_venue(t.venue_id)
-    if not venue:
-        raise HTTPException(400, f"Venue '{t.venue_id}' not found in registry.")
-
     gates = sorted(venue.gates, key=lambda g: g.distance_m)
-    if not gates:
-        raise HTTPException(400, "Venue has no gates configured.")
 
-    horses = list(t.registered_horses.values())
-
-    # Speed profiles: multipliers per gate segment
-    profiles = {
-        "pacer":    [0.92, 0.96, 1.02, 1.08, 1.12],
-        "closer":   [1.10, 1.05, 1.00, 0.95, 0.88],
-        "midfield": [1.00, 1.00, 1.00, 1.00, 1.00],
-    }
-
-    # Base time per segment scales with distance; ~16s per 400m at race speed
-    def segment_times(horse_index: int) -> list[float]:
-        profile_name = random.choice(list(profiles.keys()))
-        mults = profiles[profile_name]
+    def segment_times(reaction_s: float) -> list[float]:
+        mults = _SIM_PROFILES[random.choice(list(_SIM_PROFILES.keys()))]
         ability = random.uniform(0.95, 1.05)
-        times = [0.0]
-        cumulative = 0.0
+        # First gate (the break) fires after the reaction delay; everything shifts.
+        times = [reaction_s]
+        cumulative = reaction_s
         for i in range(len(gates) - 1):
             dist = gates[i + 1].distance_m - gates[i].distance_m
             base = dist / 25.0  # ~25 m/s ≈ 90 km/h
@@ -816,16 +865,54 @@ def simulate_race(_: User = Depends(get_current_user)):
                 t.submit_tag(horse.horse_id, gate.reader_id)
 
     race_start = time.time() + 0.1  # small buffer so all threads are ready
+    reactions: dict[str, int] = {}
     threads = []
-    for idx, horse in enumerate(horses):
-        times = segment_times(idx)
+    for horse in horses:
+        reaction_s = max(0.0, random.gauss(0.32, 0.12))
+        reactions[horse.horse_id] = int(reaction_s * 1000)
+        times = segment_times(reaction_s)
         th = threading.Thread(target=run_horse, args=(horse, times, race_start), daemon=True)
         threads.append(th)
 
     for th in threads:
         th.start()
 
-    return {"ok": True, "simulating": True, "runners": len(horses), "gates": len(gates)}
+    return reactions
+
+
+@router.post("/race/simulate")
+def simulate_race(_: User = Depends(get_current_user)):
+    """
+    Arm the registered race and run a mock simulation using the registered
+    field and venue gates. Horses are assigned speed profiles randomly and
+    driven through each gate with realistic timing in background threads.
+    """
+    t = get_tracker()
+    if not t:
+        raise HTTPException(400, "No race registered. Use Race Builder first.")
+    if t.status not in ("idle", "armed"):
+        raise HTTPException(400, f"Cannot simulate in '{t.status}' state. Reset first.")
+
+    arm_result = t.arm()
+    if not arm_result["ok"]:
+        raise HTTPException(400, arm_result["error"])
+
+    venue = registry.get_venue(t.venue_id)
+    if not venue:
+        raise HTTPException(400, f"Venue '{t.venue_id}' not found in registry.")
+
+    if not venue.gates:
+        raise HTTPException(400, "Venue has no gates configured.")
+
+    horses = list(t.registered_horses.values())
+    # Note: the chosen race distance is metadata only — the field always runs
+    # the full venue gate set. The oval track animation assumes a start at
+    # distance 0, so trimming gates breaks the live interpolation.
+    reactions = _simulate_field(t, venue, horses)
+    # Stash break reactions on the tracker so they can be persisted later.
+    t.break_reactions = reactions
+
+    return {"ok": True, "simulating": True, "runners": len(horses), "gates": len(venue.gates)}
 
 
 @router.post("/race/simulate/pause")
@@ -848,6 +935,164 @@ def resume_simulation(_: User = Depends(get_current_user)):
     if not result["ok"]:
         raise HTTPException(400, result["error"])
     return result
+
+
+# ------------------------------------------------------------------ #
+# Morning works — workout simulation (reuses the timing engine on its own
+# tracker so it never disturbs a registered/live race)
+# ------------------------------------------------------------------ #
+
+class WorkoutSimulateRequest(BaseModel):
+    venue_id: str
+    horse_ids: list[str] = Field(..., min_length=1, description="EPCs to send out for the work")
+    distance_m: Optional[float] = None
+    surface: Optional[str] = None
+    track_condition: Optional[str] = None
+    rider_name: Optional[str] = None
+    clocker_name: Optional[str] = None
+    timekeeper_name: Optional[str] = None
+
+
+@router.post("/workout/simulate")
+def simulate_workout(req: WorkoutSimulateRequest, db: Session = Depends(get_db),
+                     _: User = Depends(get_current_user)):
+    """
+    Run a timed morning work: send the chosen horses through the venue gates
+    on a dedicated workout tracker. Recorded splits + break reactions are kept
+    on the tracker until POST /workout/simulate/save persists them.
+    """
+    venue_id = req.venue_id.strip().upper()
+    venue = registry.get_venue(venue_id)
+    if not venue:
+        raise HTTPException(404, f"Venue '{venue_id}' not found.")
+    if not venue.gates:
+        raise HTTPException(400, "Venue has no gates configured.")
+
+    ids = [e.strip().upper() for e in req.horse_ids]
+    if len(ids) != len(set(ids)):
+        raise HTTPException(400, "Duplicate horse_id values.")
+
+    entries = []
+    for i, epc in enumerate(ids):
+        horse = crud.get_horse(db, epc)
+        entries.append(HorseEntry(
+            horse_id=epc,
+            display_name=horse.name if horse else epc,
+            saddle_cloth=str(i + 1),
+        ))
+
+    t = RaceTracker(venue_id=venue_id)
+    reg = t.register_horses(entries)
+    if not reg["ok"]:
+        raise HTTPException(400, reg["error"])
+    t.arm()
+    set_workout_tracker(t)
+
+    reactions = _simulate_field(t, venue, entries)
+    t.break_reactions = reactions
+    # Stash the clocker/rider context + distance for the save step.
+    t.workout_context = {
+        "distance_m": req.distance_m,
+        "surface": req.surface,
+        "track_condition": req.track_condition,
+        "rider_name": req.rider_name,
+        "clocker_name": req.clocker_name,
+        "timekeeper_name": req.timekeeper_name,
+    }
+
+    return {"ok": True, "simulating": True, "runners": len(entries), "gates": len(venue.gates)}
+
+
+@router.post("/workout/simulate/pause")
+def pause_workout(_: User = Depends(get_current_user)):
+    t = get_workout_tracker()
+    if not t:
+        raise HTTPException(400, "No active workout.")
+    result = t.pause()
+    if not result["ok"]:
+        raise HTTPException(400, result["error"])
+    return result
+
+
+@router.post("/workout/simulate/resume")
+def resume_workout(_: User = Depends(get_current_user)):
+    t = get_workout_tracker()
+    if not t:
+        raise HTTPException(400, "No active workout.")
+    result = t.resume()
+    if not result["ok"]:
+        raise HTTPException(400, result["error"])
+    return result
+
+
+@router.get("/workout/status")
+def workout_status():
+    t = get_workout_tracker()
+    if not t:
+        return {"status": "idle", "message": "No active workout"}
+    return t.get_status()
+
+
+@router.get("/workout/state")
+def workout_state():
+    t = get_workout_tracker()
+    if not t:
+        return {"status": "idle", "message": "No active workout"}
+    return t.get_race_state()
+
+
+@router.post("/workout/simulate/save")
+def save_workout(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """
+    Persist the finished workout sim as a WorkoutRecord per horse, with the
+    recorded sectional splits and the rider/clocker attribution supplied when
+    the work was started. Idempotent-ish: each call writes fresh records.
+    """
+    t = get_workout_tracker()
+    if not t:
+        raise HTTPException(400, "No active workout to save.")
+    state = t.get_race_state()
+    ctx = getattr(t, "workout_context", {}) or {}
+    reactions = getattr(t, "break_reactions", {}) or {}
+    workout_date = datetime.now(timezone.utc).date().isoformat()
+
+    saved = []
+    for horse_data in state.get("horses", []):
+        epc = horse_data["horse_id"]
+        if not crud.get_horse(db, epc):
+            continue
+        events = horse_data.get("events", [])
+        sectionals = horse_data.get("sectionals", [])
+        duration_ms = events[-1]["elapsed_ms"] if events else None
+        # Distance: explicit request value, else the furthest gate reached.
+        distance_m = ctx.get("distance_m")
+        if distance_m is None and events:
+            distance_m = max(e["distance_m"] for e in events)
+        result = crud.add_workout(
+            db,
+            epc=epc,
+            workout_date=workout_date,
+            distance_m=float(distance_m or 0.0),
+            surface=ctx.get("surface"),
+            duration_ms=duration_ms,
+            track_condition=ctx.get("track_condition"),
+            trainer_name=None,
+            rider_name=ctx.get("rider_name"),
+            clocker_name=ctx.get("clocker_name"),
+            timekeeper_name=ctx.get("timekeeper_name"),
+            splits_json=json.dumps(sectionals) if sectionals else None,
+            source="sim",
+            notes="Timed work (simulated)",
+        )
+        # Also record the gate break from this work (race_id is None for works).
+        reaction_ms = reactions.get(epc)
+        if reaction_ms is not None:
+            crud.add_break_record(db, horse_epc=epc, reaction_ms=reaction_ms,
+                                  race_id=None, source="sim")
+        if result.get("ok"):
+            saved.append({"epc": epc, "workout_id": result["id"], "duration_ms": duration_ms})
+
+    return {"ok": True, "saved": saved, "count": len(saved)}
 
 
 # ------------------------------------------------------------------ #
@@ -980,6 +1225,9 @@ class AddWorkoutRequest(BaseModel):
     duration_ms: Optional[int] = None
     track_condition: Optional[str] = None
     trainer_name: Optional[str] = None
+    rider_name: Optional[str] = None
+    clocker_name: Optional[str] = None
+    timekeeper_name: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -1266,6 +1514,20 @@ def persist_race(
     if not result["ok"]:
         raise HTTPException(404, result["error"])
 
+    # Persist starting-gate break analysis captured during the simulation.
+    reactions = getattr(t, "break_reactions", {}) or {}
+    breaks_persisted = 0
+    for horse_data in tracker_state.get("horses", []):
+        epc = horse_data["horse_id"]
+        reaction_ms = reactions.get(epc)
+        if reaction_ms is None:
+            continue
+        br = crud.add_break_record(db, horse_epc=epc, reaction_ms=reaction_ms,
+                                   race_id=race_id, source="race")
+        if br.get("ok") and not br.get("duplicate"):
+            breaks_persisted += 1
+    result["breaks_persisted"] = breaks_persisted
+
     # Build and schedule GateSmart webhook without blocking the response
     race = crud.get_race(db, race_id)
     if race:
@@ -1307,6 +1569,10 @@ def add_workout(epc: str, req: AddWorkoutRequest, db: Session = Depends(get_db),
         duration_ms=req.duration_ms,
         track_condition=req.track_condition,
         trainer_name=req.trainer_name,
+        rider_name=req.rider_name,
+        clocker_name=req.clocker_name,
+        timekeeper_name=req.timekeeper_name,
+        source="manual",
         notes=req.notes,
     )
     if not result["ok"]:
@@ -1331,7 +1597,36 @@ def get_workouts(epc: str, db: Session = Depends(get_db)):
                 "duration_ms": r.duration_ms,
                 "track_condition": r.track_condition,
                 "trainer_name": r.trainer_name,
+                "rider_name": r.rider_name,
+                "clocker_name": r.clocker_name,
+                "timekeeper_name": r.timekeeper_name,
+                "splits_json": r.splits_json,
+                "source": r.source,
                 "notes": r.notes,
+            }
+            for r in records
+        ],
+    }
+
+
+@router.get("/horses/{epc}/breaks")
+def get_breaks(epc: str, db: Session = Depends(get_db)):
+    """Starting-gate break history for a horse — reaction time, verdict, baseline delta."""
+    epc = epc.strip().upper()
+    if not crud.get_horse(db, epc):
+        raise HTTPException(404, f"Horse '{epc}' not found")
+    records = crud.get_breaks(db, epc)
+    return {
+        "epc": epc,
+        "breaks": [
+            {
+                "id": r.id,
+                "race_id": r.race_id,
+                "reaction_ms": r.reaction_ms,
+                "verdict": r.verdict,
+                "baseline_delta_ms": r.baseline_delta_ms,
+                "recorded_at": r.recorded_at.isoformat() if r.recorded_at else None,
+                "source": r.source,
             }
             for r in records
         ],
