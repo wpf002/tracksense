@@ -2,117 +2,164 @@
 
 ## What It Is
 
-TrackSense is a full-stack horse racing intelligence platform built around
-permanent RFID microchip identification. Every horse receives a UHF Gen2 glass
-capsule implant (23mm × 3.85mm) injected into the lower lip by a licensed vet.
-That chip — storing a 96-bit EPC — is the horse's permanent, unforgeable identity
-for its entire career. Every system in TrackSense flows from that single source
-of truth: timing, tracking, health, welfare, regulatory compliance, analytics.
+TrackSense is a **HISA compliance platform for US thoroughbred racing**. It runs
+the everyday operational workflows of a racetrack and training center — horse
+identity checks, veterinary and treatment records, timed workouts, pre-race
+inspections, and post-race sample collection — and generates the regulatory
+submissions the **Horseracing Integrity and Safety Authority (HISA)** requires
+as a **byproduct of that operational data**, instead of as a separate paperwork
+burden.
+
+The platform is organized around three modules:
+
+1. **Race Day Operations** — paddock identity verification, pre-race veterinary
+   inspection, scratches, and post-race test-barn sample chain of custody.
+2. **Training Center Workflows** — daily treatment and veterinary records, timed
+   workout logging, and horse-in-training status for every covered horse.
+3. **Jockey Club Chip-Based Identity** — every covered horse is identified by the
+   LF microchip already mandated by The Jockey Club, read with a commodity
+   handheld scanner. That chip is the single key that ties every record together.
+
+Compliance is not a separate product surface. Officials and trainers do their
+normal jobs through TrackSense; the data they capture is structured so the
+corresponding HISA submission can be assembled and filed automatically.
 
 ---
 
-## The Problem It Solves
+## Where It Sits in the Ecosystem
 
-Current race timing and horse identity management fails in several ways:
+TrackSense is **complementary infrastructure**, not a timing or tracking competitor:
 
-- Race equipment (transponders, bibs) must be attached and removed per race, introducing human error and misassignment
-- Photo finish resolves close margins but captures no sectional data
-- No continuous position tracking during a race — only start and finish
-- Horse identity is managed separately from timing, requiring manual reconciliation
-- Pre-race identity verification is paper-based
-- Drug testing chain of custody is paper-based and prone to error
-- Training data lives in trainer notebooks, disconnected from race performance
-- Health records are fragmented across vets, trainers, and governing bodies
+| System | Owns | TrackSense relationship |
+|--------|------|-------------------------|
+| **FinishLynx** | Official photo-finish order of finish | TrackSense does **not** time races or call the finish. It consumes the official result. |
+| **TPD (Total Performance Data)** | GPS/positional in-running sectionals | TrackSense does **not** produce GPS sectionals or live position data. |
+| **TrackSense** | Identity, welfare, treatment, and compliance record-keeping | Fills the regulatory/operational gap neither of the above addresses. |
 
-TrackSense solves all of these with one permanent implant and a network of
-gate readers, APIs, and workflows built around it.
-
----
-
-## How the Simulation Maps to Real Hardware
-
-The development simulation is a 1:1 replica of real hardware behaviour.
-
-### Simulation path
-
-```text
-mock_multi_reader.py
-  → Thread per horse, waits for gate arrival time
-  → POST /tags/submit { tag_id: EPC, reader_id: "GATE-F4" }
-```
-
-### Real hardware path
-
-```text
-hardware/reader.py (SerialReader / TCPReader / LLRPReader)
-  → RFID antenna reads lip chip as horse passes at ~65 km/h
-  → POST /tags/submit { tag_id: EPC, reader_id: "GATE-F4" }
-```
-
-Same endpoint. Same payload. Same backend logic. The only difference is what
-triggers the HTTP call. Switching to real hardware is a one-line config change.
-
-### Simulation faithfully reproduces real RF behaviours
-
-- **2–4 reads per gate transit** (~8ms window at race speed) — the backend deduplicates them into one confirmed detection event, exactly as it will in production
-- **Noise tags** — stray reads from non-race chips in the RF environment
-- **Speed profiles** — pacer / closer / midfield timing mirrors real race sectional patterns
-
-### Recommended hardware
-
-- **Antenna:** Impinj R420 or R220 (enterprise UHF, excellent multi-tag reads)
-- **Tag:** UHF Gen2 ISO 18000-6C glass capsule — 3–8m read range, handles race speed. NOTE: standard vet LF microchips (ISO 11784/11785) have only 10–15cm range and are NOT suitable for finish-line detection
-- **Placement:** Two antennas per gate, RHCP circular polarisation, mounted at ~1.2m (girth height), pointing inward across the track
+The wedge is identity-anchored compliance: nobody else turns the mandatory
+microchip plus routine vet/treatment/workout activity into ready-to-file HISA
+submissions. TrackSense becomes the **operational and compliance layer
+underneath** these systems — ingesting their outputs (e.g. FinishLynx finish
+order/times) rather than reproducing them.
 
 ---
 
-## Architecture
+## Identity: Existing Mandated LF Microchips
+
+TrackSense uses the **LF (134.2 kHz, ISO 11784/11785) microchip already required
+by The Jockey Club** for registration of every thoroughbred foal. There is no new
+implant, no novel chip, and no specialized antenna infrastructure:
+
+- The chip is **already in the horse** as a condition of registration.
+- It is read by **commodity handheld scanners** (the same class of reader used in
+  any veterinary clinic), at arm's length, while the horse stands still.
+- A scan returns the chip's ID, which TrackSense resolves to the horse's registry
+  identity and its complete record history.
+
+This is a deliberate departure from the prior product direction. TrackSense does
+**not** depend on UHF Gen2 lip implants, fixed-gate finish-line readers, or
+race-speed RF detection. Identity is a deliberate, point-of-care scan by an
+official or vet — not an automatic gate read.
+
+---
+
+## Data Captured → HISA Rules Satisfied
+
+Every record type maps to one or more HISA rules across the **Racetrack Safety
+Program** and the **Anti-Doping and Medication Control (ADMC) Program**. The
+mapping below is the target for the Phase 3 reporting module; the authoritative,
+endpoint-level mapping will live in `docs/HISA_RULE_MAPPING.md`.
+
+| Data captured in TrackSense | HISA rule(s) it feeds |
+|-----------------------------|-----------------------|
+| **Surface condition / track geometry logs** (daily surface condition, slope/design measurements) | **Rule 2151 / 2154** — track surface design and slope measurements |
+| **Vaccination & monitoring records** (vaccination status, racehorse monitoring) | **Rule 2143** — vaccination and racehorse monitoring |
+| **Veterinary inspections** (pre-race, post-race, scratches, fit-to-run) | **Rules 2230s** — veterinary inspections |
+| **Riding-crop usage / violations** (crop use recorded against a ride) | **Rules 2280 / 2281** — riding crop usage and violations |
+| **Stewards' inquiries & rulings** (inquiry, finding, disposition) | **Stewards' rulings** — 48-hour submission requirement |
+| **Timed workout logs** (date, distance, surface, time, location) | **Timed and Reported Workouts** — workout reporting |
+| **Treatment & medication records** (substance, dose, route, date, administering vet) | **ADMC** — treatment records |
+| **Test-barn sample chain of custody** (check-in, sample collection, custody handoffs, check-out) | **ADMC** — sample chain of custody |
+| **Horse identity & registration link** (chip scan → registry ID, covered-horse status) | Identity verification underpinning all of the above |
+| **Biosensor / wearable telemetry** (heart rate, temperature, stride) | Supporting welfare & safety monitoring data |
+
+> **Note:** rule numbers above come from the v2.0 roadmap and should be
+> re-verified against the current HISA rulebook (exact section numbers, reporting
+> windows, and submission formats) when Phase 3 builds each submission schema.
+> Phase 3 (HISA Reporting Module) owns `docs/HISA_RULE_MAPPING.md` and the precise
+> per-rule data-source → submission-endpoint mapping.
+
+---
+
+## What Carries Over From the Existing Codebase
+
+The pivot keeps the durable backend the prior phases already built and tested.
+These remain the foundation of v2.0:
+
+- **Race lifecycle engine** — IDLE → ARMED → RUNNING → FINISHED (reframed as race
+  day operations state, not timing state).
+- **Welfare workflows** — workouts, check-ins, test barn, vet records.
+- **Biosensor integration** — heart rate, temperature, stride rate.
+- **Thermal chip temperature capture.**
+- **Multi-tenancy** — per-organization isolation (tracks, training centers).
+- **JWT auth + refresh** and **user management with RBAC**.
+- **API key system** with rate limiting.
+- **Audit log** — every official action timestamped and attributed.
+- **Webhooks** — retry, delivery log, HMAC-SHA256 signing.
+- **Industry-format exports** — Racing Australia, BHA, Jockey Club.
+- **Mobile-optimised views** and the check-in scanner UI.
+- **GateSmart webhook integration** — reframed: instead of in-race sectional data,
+  it pushes workout + welfare data so GateSmart's Secretariat handicapping engine
+  consumes training history and welfare flags (see Phase 1 in `ROADMAP.md`).
+
+## What's New in v2.0
+
+- **Jockey Club LF chip identity** — handheld scanners, ISO 11784/11785 FDX-B.
+- **HISA-specific reporting schemas.**
+- **Training center module.**
+- **Refined race day operations module.**
+- **Compliance dashboard.**
+
+## What the Prior Product Direction Dropped
+
+See `docs/PIVOT_NOTES.md` for the full story. In short, v2.0 removes the UHF Gen2
+lip-implant architecture, fixed-gate readers, the LLRP/sllurp integration, the
+broadcast TrackMap (60fps animation), live in-race sectional timing, the
+sllurp/Impinj R220/Times-7 hardware path, and the hardware procurement and field
+test plan. Identity becomes a point-of-care LF chip scan rather than an automatic
+UHF gate read. The detailed v1.0 hardware documents are preserved under
+`docs/archive/` for reference.
+
+---
+
+## Architecture (Summary)
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│                        HARDWARE LAYER                        │
-│  UHF antenna gates (Start, Furlong 2/4/6/8, Finish)         │
-│  SerialReader / TCPReader / LLRPReader (Impinj LLRP)         │
+│  CAPTURE LAYER                                                │
+│  Handheld LF microchip scanner (ISO 11784/11785)             │
+│  Officials / vets / trainers entering records via the app    │
+│  Optional race-day biosensor wearable (telemetry)            │
 └────────────────────────┬────────────────────────────────────┘
-                         │ POST /tags/submit
+                         │ REST API (JWT / RBAC)
 ┌────────────────────────▼────────────────────────────────────┐
-│                        BACKEND (FastAPI)                      │
-│                                                               │
-│  RaceTracker — thread-safe in-memory race state              │
-│    • Duplicate folding (2–4 reads → 1 gate event)            │
-│    • Sectional time + speed computation                       │
-│    • Finish position assignment                               │
-│                                                               │
-│  GateRegistry — venue + gate config (in-memory, DB-backed)   │
-│  REST API — register, arm, reset, submit, state, results      │
-│  WebSocket — live gate events pushed to connected clients     │
-│  JWT auth — all write endpoints protected                     │
-│  API keys — third-party read access with rate limiting        │
-│  Webhooks — push race results to subscriber URLs              │
-│  Audit log — every official action timestamped                │
-│  Multi-tenancy — venue isolation                              │
-│                                                               │
-│  PostgreSQL (SQLite in dev) — persisted via SQLAlchemy        │
-│    Horses, Owners, Trainers, VetRecords                       │
-│    Venues, Gates, Races, RaceEntries (+ jockey)               │
-│    GateReads, RaceResults, WorkoutRecords                     │
-│    CheckInRecords, TestBarnRecords                            │
-│    ApiKeys, WebhookSubscriptions, AuditLog                    │
+│  BACKEND (FastAPI, Python 3.12)                               │
+│   • Horse identity resolution (chip ID → registry → records)  │
+│   • Welfare workflows: workouts, check-ins, test barn         │
+│   • Veterinary & treatment records                            │
+│   • Race lifecycle (entries, results)                         │
+│   • HISA submission assembly (Phase 3)                        │
+│   • Multi-tenancy · Audit log · Webhooks · Industry exports   │
+│   • PostgreSQL (SQLite in dev) via SQLAlchemy                 │
 └────────────────────────┬────────────────────────────────────┘
-                         │ REST + WebSocket
+                         │ REST
 ┌────────────────────────▼────────────────────────────────────┐
-│                      FRONTEND (React + Vite)                  │
-│                                                               │
-│  Live Race   — real-time horse positions via WebSocket        │
-│                jockey column, amber row flash on gate event   │
-│  Results     — finish order, sectional times, speed chart     │
-│                jockey column                                  │
-│  Horse Registry — search by name or EPC, full career profile  │
-│  Race Builder — venue/gate selection, field registration      │
-│  Admin       — user management, webhooks, API keys            │
-│                                                               │
-│  Tailwind dark UI — near-black backgrounds, amber accents,    │
-│  monospace timing font                                        │
+│  FRONTEND (React 19 + Vite + Tailwind)                        │
+│   • Horse profile & identity                                  │
+│   • Training center: treatments, workouts, vet records        │
+│   • Race day: paddock check-in, pre-race inspection, test barn│
+│   • Compliance dashboard / submission review (Phase 3)        │
+│   • Admin: users, webhooks, API keys                          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -127,48 +174,10 @@ triggers the HTTP call. Switching to real hardware is a one-line config change.
 | ORM              | SQLAlchemy + Alembic migrations                  |
 | Frontend         | React 19 + Vite + Tailwind CSS                   |
 | State            | Zustand + TanStack Query                         |
-| Real-time        | WebSockets (native FastAPI)                      |
-| Auth             | JWT (python-jose) + bcrypt                       |
-| Hardware         | pyserial (serial/USB) + sllurp (Impinj LLRP)     |
-| Simulation       | scripts/mock_multi_reader.py                     |
+| Auth             | JWT (python-jose) + bcrypt, role-based access    |
+| Integrations     | Webhooks (outbound), industry-format exports     |
 | Dev launcher     | start.sh (schema check, auto-seed, health check) |
 | Containerisation | Docker + Docker Compose                          |
-
----
-
-## Real Seed Data
-
-The development database is seeded with real-world racing data:
-
-**30 champion racehorses** — Secretariat, Winx, Frankel, Black Caviar,
-American Pharoah, Justify, Zenyatta, Enable, Sea The Stars, Deep Impact,
-Arrogate, Flightline, Curlin, Rachel Alexandra, California Chrome, Gun Runner,
-Beholder, Songbird, Golden Sixty, Equinox, and more
-
-**Jockeys** — Each horse paired with their real jockey (Ron Turcotte on
-Secretariat, Hugh Bowman on Winx, Tom Queally on Frankel, etc.)
-
-**10 real venues** with accurate distances:
-
-- Churchill Downs (2012m dirt) — Fri/Sat
-- Saratoga Race Course (1809m dirt) — Wed/Sat
-- Belmont Park (2414m dirt) — Fri/Sat
-- Keeneland Race Course (1809m dirt) — Thu/Sat
-- Santa Anita Park (1809m dirt) — Thu/Sat
-- Oaklawn Park (1609m dirt) — Thu/Sat
-- Del Mar (1609m turf) — Fri/Sat
-- Louisiana Downs (1409m dirt) — Wed/Sat
-- Flemington Racecourse (2040m turf) — Fri/Sat
-- Royal Ascot (2012m turf) — Thu/Sat
-
-**Real trainers** — Bob Baffert, Todd Pletcher, Steve Asmussen, Chad Brown,
-Chris Waller, Aidan O'Brien, John Gosden, Charlie Appleby, and others
-
-**Real owners** — Godolphin, Coolmore Stud, Juddmonte Farms, WinStar Farm,
-Stonestreet Stables, Sheikh Mohammed Al Maktoum, Khalid Abdullah, and others
-
-**90 days of race history** — ~1,024 races, ~10,000+ entries, gate reads,
-sectional times, workout logs, vet records, check-in and test barn records
 
 ---
 
@@ -178,61 +187,10 @@ sectional times, workout logs, vet records, check-in and test barn records
 ./start.sh
 ```
 
-This single command:
+This single command starts the FastAPI backend on
+<http://localhost:8001>, auto-seeds the development database if empty, and
+starts the React frontend on <http://localhost:5173>.
 
-1. Kills any existing processes on ports 8001 / 5173
-2. Adds any missing DB columns (safe no-op if schema is current)
-3. Starts the FastAPI backend on <http://localhost:8001>
-4. Verifies backend health — exits with a clear error if it fails to start
-5. Auto-seeds the DB with real race data if it is empty
-6. Starts the React frontend on <http://localhost:5173>
-7. Opens the browser to the login page
+**Login:** `admin` / `tracksense`
 
-**Login:** admin / tracksense
-
----
-
-## Completed Phases
-
-| Phase | Description                                            | Status   |
-|-------|--------------------------------------------------------|----------|
-| 1     | Finish-line timing engine, duplicate folding, REST API | Complete |
-| 2     | Multi-gate tracking, sectionals, WebSocket feed        | Complete |
-| 3     | PostgreSQL persistence, horse identity platform        | Complete |
-| 4     | React frontend — Live Race, Results, Registry, Builder | Complete |
-| 5A    | Welfare workflows — workouts, check-in, test barn      | Complete |
-| 6     | API keys, webhooks, GateSmart integration, audit log   | Complete |
-| 7     | Multi-tenancy, JWT auth, LLRP reader, rate limiting    | Complete |
-
----
-
-## Immediate Next Work
-
-- TrackMap: replace SVG placeholder with accurate per-venue geometry; horse positions driven by server-reported gate distances, not client interpolation — must reach broadcast-quality bar
-- Biosensor integration: race-day wearable (heart rate, temp, stride) paired to lip chip EPC at registration, telemetry stored per race
-- Thermal chip upgrade path: temperature reading at scan time via thermal-capable UHF Gen2 chips (ISO 18000-6C + thermal sensor)
-- Mobile-optimised views for trackside officials
-
----
-
-## Competitive Position
-
-**Lip Chip / HoofLink** (<https://lipchipllc.com>) — closest existing product.
-Lip-implant microchips with health records and temperature monitoring,
-focused on barrel racing / ranch horses using LF chips with Bluetooth
-short-range scanning. Does not support finish-line detection at race speed,
-sectional timing, or thoroughbred flat racing.
-
-TrackSense occupies the gap: UHF finish-line detection at full race speed,
-multi-gate sectional tracking, complete horse welfare workflows, and real-time
-broadcast-ready data — purpose-built for thoroughbred flat racing.
-
----
-
-## Build-to-Flip Architecture
-
-TrackSense is designed to be sold or licensed to racing venues, governing
-bodies, or timing service providers. The architecture reflects this:
-clean REST + WebSocket APIs, multi-venue / multi-tenant isolation,
-exportable data formats, API key access for third parties, webhook
-delivery to subscriber systems, and a complete audit trail.
+See `README.md` for more detail and `ROADMAP.md` for the six-phase pivot plan.
