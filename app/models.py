@@ -55,6 +55,8 @@ class Horse(Base):
     checkins: Mapped[list["CheckInRecord"]] = relationship("CheckInRecord", back_populates="horse", cascade="all, delete-orphan")
     test_barn_records: Mapped[list["TestBarnRecord"]] = relationship("TestBarnRecord", back_populates="horse", cascade="all, delete-orphan")
     biosensor_readings: Mapped[list["BiosensorReading"]] = relationship("BiosensorReading", back_populates="horse", cascade="all, delete-orphan")
+    treatments: Mapped[list["TreatmentRecord"]] = relationship("TreatmentRecord", back_populates="horse", cascade="all, delete-orphan")
+    stewards_rulings: Mapped[list["StewardsRuling"]] = relationship("StewardsRuling", back_populates="horse")
 
 
 class Owner(Base):
@@ -315,3 +317,88 @@ class BiosensorReading(Base):
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="wearable")
 
     horse: Mapped["Horse"] = relationship("Horse", back_populates="biosensor_readings")
+
+
+# ------------------------------------------------------------------ #
+# Phase 3 — HISA Reporting Module
+# ------------------------------------------------------------------ #
+
+class TreatmentRecord(Base):
+    """ADMC: medication/treatment record distinct from free-form VetRecord."""
+    __tablename__ = "treatment_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False, index=True)
+    treatment_date: Mapped[str] = mapped_column(String(10), nullable=False)          # YYYY-MM-DD
+    substance: Mapped[str] = mapped_column(String(200), nullable=False)
+    dose: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    route: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)         # IV/IM/oral/topical
+    withdrawal_time_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    prescribed_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    administered_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True, index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_prohibited: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    horse: Mapped["Horse"] = relationship("Horse", back_populates="treatments")
+
+
+class StewardsRuling(Base):
+    """Official rulings with 48-hour HISA submission deadline."""
+    __tablename__ = "stewards_rulings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ruling_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True, index=True)
+    horse_chip_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=True, index=True)
+    jockey_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    rule_violated: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    penalty: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")  # draft|submitted|accepted|rejected
+    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    horse: Mapped[Optional["Horse"]] = relationship("Horse", back_populates="stewards_rulings")
+
+
+class SurfaceConditionLog(Base):
+    """Daily track surface conditions for HISA Rule 2151/2154."""
+    __tablename__ = "surface_condition_logs"
+    __table_args__ = (UniqueConstraint("venue_id", "logged_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    venue_id: Mapped[str] = mapped_column(String, ForeignKey("venue_records.venue_id"), nullable=False, index=True)
+    logged_date: Mapped[str] = mapped_column(String(10), nullable=False)             # YYYY-MM-DD
+    surface_type: Mapped[str] = mapped_column(String(32), nullable=False)            # Dirt/Turf/Synthetic
+    going_description: Mapped[str] = mapped_column(String(64), nullable=False)       # Fast/Good/Soft/Heavy/Firm
+    moisture_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    temperature_c: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    maintenance_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    logged_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class HISASubmission(Base):
+    """Tracks every HISA submission — the backbone of the Compliance Dashboard."""
+    __tablename__ = "hisa_submissions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    rule_category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # WORKOUTS|ADMC_TREATMENT|ADMC_SAMPLE|SURFACE|STEWARDS_RULING|CHECKIN
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    # pending|submitted|accepted|rejected|needs_correction
+    source_record_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_record_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    horse_chip_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)  # denormalised
+    deadline_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    response_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    submitted_by: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

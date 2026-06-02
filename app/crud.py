@@ -752,3 +752,122 @@ def get_temperature_alerts(db: Session, horse_chip_id: str) -> list[CheckInRecor
     )
 
 
+# ------------------------------------------------------------------ #
+# Phase 3 — HISA Reporting
+# ------------------------------------------------------------------ #
+
+from app.models import TreatmentRecord, StewardsRuling, SurfaceConditionLog, HISASubmission
+
+
+def add_treatment(db: Session, horse_chip_id: str, treatment_date: str, substance: str, **kwargs) -> dict:
+    if not db.get(Horse, horse_chip_id):
+        return {"ok": False, "error": f"Horse '{horse_chip_id}' not found"}
+    record = TreatmentRecord(horse_chip_id=horse_chip_id, treatment_date=treatment_date,
+                             substance=substance, **kwargs)
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {"ok": True, "id": record.id}
+
+
+def get_treatments(db: Session, horse_chip_id: str) -> list[TreatmentRecord]:
+    return (db.query(TreatmentRecord).filter_by(horse_chip_id=horse_chip_id)
+            .order_by(TreatmentRecord.treatment_date.desc()).all())
+
+
+def create_stewards_ruling(db: Session, **kwargs) -> dict:
+    from datetime import timedelta
+    ruling_date = kwargs.get("ruling_date")
+    if ruling_date and "deadline_at" not in kwargs:
+        kwargs["deadline_at"] = ruling_date + timedelta(hours=48)
+    ruling = StewardsRuling(**kwargs)
+    db.add(ruling)
+    db.commit()
+    db.refresh(ruling)
+    return {"ok": True, "id": ruling.id, "deadline_at": ruling.deadline_at.isoformat()}
+
+
+def get_stewards_rulings(db: Session, horse_chip_id: Optional[str] = None,
+                         race_id: Optional[int] = None) -> list[StewardsRuling]:
+    q = db.query(StewardsRuling).order_by(StewardsRuling.ruling_date.desc())
+    if horse_chip_id:
+        q = q.filter_by(horse_chip_id=horse_chip_id)
+    if race_id:
+        q = q.filter_by(race_id=race_id)
+    return q.all()
+
+
+def upsert_surface_condition(db: Session, venue_id: str, logged_date: str, **kwargs) -> dict:
+    from app.models import VenueRecord
+    if not db.get(VenueRecord, venue_id):
+        return {"ok": False, "error": f"Venue '{venue_id}' not found"}
+    existing = (db.query(SurfaceConditionLog)
+                .filter_by(venue_id=venue_id, logged_date=logged_date).first())
+    if existing:
+        for k, v in kwargs.items():
+            setattr(existing, k, v)
+        db.commit()
+        db.refresh(existing)
+        return {"ok": True, "id": existing.id, "updated": True}
+    log = SurfaceConditionLog(venue_id=venue_id, logged_date=logged_date, **kwargs)
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+    return {"ok": True, "id": log.id, "updated": False}
+
+
+def get_surface_conditions(db: Session, venue_id: str, limit: int = 30) -> list[SurfaceConditionLog]:
+    return (db.query(SurfaceConditionLog).filter_by(venue_id=venue_id)
+            .order_by(SurfaceConditionLog.logged_date.desc()).limit(limit).all())
+
+
+def create_hisa_submission(db: Session, rule_category: str, source_record_type: str,
+                           source_record_id: int, payload_json: str,
+                           horse_chip_id: Optional[str] = None,
+                           deadline_at=None,
+                           tenant_id: Optional[str] = None) -> HISASubmission:
+    sub = HISASubmission(
+        rule_category=rule_category, status="pending",
+        source_record_type=source_record_type, source_record_id=source_record_id,
+        horse_chip_id=horse_chip_id, deadline_at=deadline_at,
+        payload_json=payload_json, tenant_id=tenant_id,
+    )
+    db.add(sub)
+    db.commit()
+    db.refresh(sub)
+    return sub
+
+
+def get_hisa_submissions(db: Session, status: Optional[str] = None,
+                         rule_category: Optional[str] = None,
+                         tenant_id: Optional[str] = None,
+                         limit: int = 100) -> list[HISASubmission]:
+    q = db.query(HISASubmission).order_by(HISASubmission.created_at.desc())
+    if status:
+        q = q.filter(HISASubmission.status == status)
+    if rule_category:
+        q = q.filter(HISASubmission.rule_category == rule_category)
+    if tenant_id:
+        q = q.filter(HISASubmission.tenant_id == tenant_id)
+    return q.limit(limit).all()
+
+
+def mark_submission_submitted(db: Session, submission_id: int,
+                               user_id: Optional[str] = None) -> Optional[HISASubmission]:
+    sub = db.get(HISASubmission, submission_id)
+    if not sub:
+        return None
+    sub.status = "submitted"
+    sub.submitted_at = datetime.now(timezone.utc)
+    sub.submitted_by = user_id
+    db.commit()
+    db.refresh(sub)
+    return sub
+
+
+def submission_exists(db: Session, source_record_type: str, source_record_id: int) -> bool:
+    return db.query(HISASubmission).filter_by(
+        source_record_type=source_record_type,
+        source_record_id=source_record_id,
+    ).first() is not None
+

@@ -1205,6 +1205,338 @@ def temperature_alerts(chip_id: str, db: Session = Depends(get_db)):
 
 
 # ------------------------------------------------------------------ #
+# Phase 3 — HISA Reporting Module
+# ------------------------------------------------------------------ #
+
+def require_compliance_or_admin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in ("admin", "compliance"):
+        raise HTTPException(status_code=403, detail="Compliance officer or admin role required")
+    return current_user
+
+
+# Treatment records
+
+class AddTreatmentRequest(BaseModel):
+    treatment_date: str = Field(..., description="ISO date e.g. '2026-06-01'")
+    substance: str
+    dose: Optional[str] = None
+    route: Optional[str] = None
+    withdrawal_time_hours: Optional[int] = None
+    prescribed_by: Optional[str] = None
+    administered_by: Optional[str] = None
+    race_id: Optional[int] = None
+    notes: Optional[str] = None
+    is_prohibited: bool = False
+
+
+@router.post("/horses/{chip_id}/treatments")
+def add_treatment(chip_id: str, req: AddTreatmentRequest,
+                  db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    result = crud.add_treatment(db, horse_chip_id=chip_id.strip().upper(),
+                                treatment_date=req.treatment_date,
+                                substance=req.substance,
+                                dose=req.dose, route=req.route,
+                                withdrawal_time_hours=req.withdrawal_time_hours,
+                                prescribed_by=req.prescribed_by,
+                                administered_by=req.administered_by,
+                                race_id=req.race_id, notes=req.notes,
+                                is_prohibited=req.is_prohibited)
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.get("/horses/{chip_id}/treatments")
+def get_treatments(chip_id: str, db: Session = Depends(get_db)):
+    chip_id = chip_id.strip().upper()
+    if not crud.get_horse(db, chip_id):
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    records = crud.get_treatments(db, chip_id)
+    return {
+        "chip_id": chip_id,
+        "treatments": [
+            {
+                "id": r.id,
+                "treatment_date": r.treatment_date,
+                "substance": r.substance,
+                "dose": r.dose,
+                "route": r.route,
+                "withdrawal_time_hours": r.withdrawal_time_hours,
+                "prescribed_by": r.prescribed_by,
+                "administered_by": r.administered_by,
+                "race_id": r.race_id,
+                "is_prohibited": r.is_prohibited,
+                "notes": r.notes,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in records
+        ],
+    }
+
+
+# Stewards' rulings
+
+class CreateStewardsRulingRequest(BaseModel):
+    ruling_date: str = Field(..., description="ISO datetime e.g. '2026-06-01T15:00:00'")
+    rule_violated: str
+    description: str
+    race_id: Optional[int] = None
+    horse_chip_id: Optional[str] = None
+    jockey_name: Optional[str] = None
+    penalty: Optional[str] = None
+
+
+@router.post("/stewards/rulings")
+def create_stewards_ruling(req: CreateStewardsRulingRequest,
+                            db: Session = Depends(get_db),
+                            current_user: User = Depends(require_compliance_or_admin)):
+    try:
+        ruling_date = datetime.fromisoformat(req.ruling_date)
+    except ValueError:
+        raise HTTPException(400, f"Invalid ruling_date: '{req.ruling_date}'")
+    result = crud.create_stewards_ruling(
+        db,
+        ruling_date=ruling_date,
+        rule_violated=req.rule_violated,
+        description=req.description,
+        race_id=req.race_id,
+        horse_chip_id=req.horse_chip_id.strip().upper() if req.horse_chip_id else None,
+        jockey_name=req.jockey_name,
+        penalty=req.penalty,
+        created_by=current_user.id,
+        tenant_id=current_user.tenant_id,
+    )
+    # Auto-create pending HISA submission for this ruling
+    from app import hisa_builder
+    import json
+    from app.models import StewardsRuling as StewardsRulingModel
+    ruling_obj = db.get(StewardsRulingModel, result["id"])
+    horse = crud.get_horse(db, ruling_obj.horse_chip_id) if ruling_obj.horse_chip_id else None
+    payload = hisa_builder.build_stewards_submission(ruling_obj, horse=horse)
+    crud.create_hisa_submission(
+        db, rule_category="STEWARDS_RULING",
+        source_record_type="StewardsRuling", source_record_id=result["id"],
+        payload_json=json.dumps(payload),
+        horse_chip_id=ruling_obj.horse_chip_id,
+        deadline_at=ruling_obj.deadline_at,
+        tenant_id=current_user.tenant_id,
+    )
+    crud.write_audit_log(db, current_user, "create", "stewards_ruling", str(result["id"]),
+                         {"rule": req.rule_violated})
+    return result
+
+
+@router.get("/stewards/rulings")
+def list_stewards_rulings(horse_chip_id: Optional[str] = None, race_id: Optional[int] = None,
+                           db: Session = Depends(get_db),
+                           _: User = Depends(require_compliance_or_admin)):
+    rulings = crud.get_stewards_rulings(db, horse_chip_id=horse_chip_id, race_id=race_id)
+    return {
+        "rulings": [
+            {
+                "id": r.id,
+                "ruling_date": r.ruling_date.isoformat() if r.ruling_date else None,
+                "deadline_at": r.deadline_at.isoformat() if r.deadline_at else None,
+                "race_id": r.race_id,
+                "horse_chip_id": r.horse_chip_id,
+                "jockey_name": r.jockey_name,
+                "rule_violated": r.rule_violated,
+                "description": r.description,
+                "penalty": r.penalty,
+                "status": r.status,
+            }
+            for r in rulings
+        ]
+    }
+
+
+# Surface condition logs
+
+class SurfaceConditionRequest(BaseModel):
+    logged_date: str = Field(..., description="YYYY-MM-DD")
+    surface_type: str = Field(..., description="Dirt|Turf|Synthetic")
+    going_description: str = Field(..., description="Fast|Good|Soft|Heavy|Firm")
+    moisture_pct: Optional[float] = None
+    temperature_c: Optional[float] = None
+    maintenance_notes: Optional[str] = None
+    logged_by: Optional[str] = None
+
+
+@router.post("/venues/{venue_id}/surface-conditions")
+def add_surface_condition(venue_id: str, req: SurfaceConditionRequest,
+                           db: Session = Depends(get_db),
+                           current_user: User = Depends(require_compliance_or_admin)):
+    result = crud.upsert_surface_condition(
+        db, venue_id=venue_id.upper(), logged_date=req.logged_date,
+        surface_type=req.surface_type, going_description=req.going_description,
+        moisture_pct=req.moisture_pct, temperature_c=req.temperature_c,
+        maintenance_notes=req.maintenance_notes, logged_by=req.logged_by,
+        tenant_id=current_user.tenant_id,
+    )
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.get("/venues/{venue_id}/surface-conditions")
+def get_surface_conditions(venue_id: str, db: Session = Depends(get_db)):
+    logs = crud.get_surface_conditions(db, venue_id=venue_id.upper())
+    return {
+        "venue_id": venue_id.upper(),
+        "logs": [
+            {
+                "id": l.id, "logged_date": l.logged_date,
+                "surface_type": l.surface_type, "going_description": l.going_description,
+                "moisture_pct": l.moisture_pct, "temperature_c": l.temperature_c,
+                "maintenance_notes": l.maintenance_notes, "logged_by": l.logged_by,
+            }
+            for l in logs
+        ],
+    }
+
+
+# HISA Submissions
+
+@router.get("/hisa/submissions")
+def list_hisa_submissions(
+    status: Optional[str] = None,
+    rule_category: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_compliance_or_admin),
+):
+    subs = crud.get_hisa_submissions(db, status=status, rule_category=rule_category,
+                                      tenant_id=current_user.tenant_id)
+    return {
+        "submissions": [
+            {
+                "id": s.id,
+                "rule_category": s.rule_category,
+                "status": s.status,
+                "source_record_type": s.source_record_type,
+                "source_record_id": s.source_record_id,
+                "horse_chip_id": s.horse_chip_id,
+                "deadline_at": s.deadline_at.isoformat() if s.deadline_at else None,
+                "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in subs
+        ]
+    }
+
+
+@router.get("/hisa/submissions/{submission_id}")
+def get_hisa_submission(submission_id: int, db: Session = Depends(get_db),
+                         _: User = Depends(require_compliance_or_admin)):
+    from app.models import HISASubmission as HISASubmissionModel
+    sub = db.get(HISASubmissionModel, submission_id)
+    if not sub:
+        raise HTTPException(404, f"Submission {submission_id} not found")
+    return {
+        "id": sub.id,
+        "rule_category": sub.rule_category,
+        "status": sub.status,
+        "source_record_type": sub.source_record_type,
+        "source_record_id": sub.source_record_id,
+        "horse_chip_id": sub.horse_chip_id,
+        "deadline_at": sub.deadline_at.isoformat() if sub.deadline_at else None,
+        "submitted_at": sub.submitted_at.isoformat() if sub.submitted_at else None,
+        "payload_json": sub.payload_json,
+        "response_json": sub.response_json,
+        "created_at": sub.created_at.isoformat() if sub.created_at else None,
+    }
+
+
+@router.post("/hisa/submit/{submission_id}")
+def submit_hisa(submission_id: int, db: Session = Depends(get_db),
+                current_user: User = Depends(require_compliance_or_admin)):
+    """Mark a submission as submitted. Returns the payload for manual portal upload."""
+    sub = crud.mark_submission_submitted(db, submission_id, user_id=current_user.id)
+    if not sub:
+        raise HTTPException(404, f"Submission {submission_id} not found")
+    import json
+    return {
+        "ok": True,
+        "id": sub.id,
+        "status": sub.status,
+        "submitted_at": sub.submitted_at.isoformat(),
+        "payload": json.loads(sub.payload_json) if sub.payload_json else None,
+    }
+
+
+@router.post("/hisa/build-all")
+def build_all_hisa_submissions(db: Session = Depends(get_db),
+                                current_user: User = Depends(require_compliance_or_admin)):
+    """
+    Scan all source records with no HISASubmission yet and create pending submissions.
+    Idempotent — safe to call repeatedly.
+    """
+    from app import hisa_builder
+    import json
+    created = 0
+    tenant_id = current_user.tenant_id
+
+    # Workouts
+    from app.models import WorkoutRecord
+    for w in db.query(WorkoutRecord).all():
+        if not crud.submission_exists(db, "WorkoutRecord", w.id):
+            horse = crud.get_horse(db, w.horse_chip_id)
+            payload = hisa_builder.build_workout_submission(w, horse=horse)
+            crud.create_hisa_submission(db, rule_category="WORKOUTS",
+                source_record_type="WorkoutRecord", source_record_id=w.id,
+                horse_chip_id=w.horse_chip_id,
+                payload_json=json.dumps(payload), tenant_id=tenant_id)
+            created += 1
+
+    # Test barn (ADMC sample chain)
+    from app.models import TestBarnRecord
+    for t in db.query(TestBarnRecord).all():
+        if not crud.submission_exists(db, "TestBarnRecord", t.id):
+            horse = crud.get_horse(db, t.horse_chip_id)
+            payload = hisa_builder.build_sample_submission(t, horse=horse)
+            crud.create_hisa_submission(db, rule_category="ADMC_SAMPLE",
+                source_record_type="TestBarnRecord", source_record_id=t.id,
+                horse_chip_id=t.horse_chip_id,
+                payload_json=json.dumps(payload), tenant_id=tenant_id)
+            created += 1
+
+    # Treatment records (ADMC)
+    from app.models import TreatmentRecord
+    for tr in db.query(TreatmentRecord).all():
+        if not crud.submission_exists(db, "TreatmentRecord", tr.id):
+            horse = crud.get_horse(db, tr.horse_chip_id)
+            payload = hisa_builder.build_treatment_submission(tr, horse=horse)
+            crud.create_hisa_submission(db, rule_category="ADMC_TREATMENT",
+                source_record_type="TreatmentRecord", source_record_id=tr.id,
+                horse_chip_id=tr.horse_chip_id,
+                payload_json=json.dumps(payload), tenant_id=tenant_id)
+            created += 1
+
+    # Check-ins
+    from app.models import CheckInRecord
+    for c in db.query(CheckInRecord).filter(CheckInRecord.race_id.isnot(None)).all():
+        if not crud.submission_exists(db, "CheckInRecord", c.id):
+            horse = crud.get_horse(db, c.horse_chip_id)
+            payload = hisa_builder.build_checkin_submission(c, horse=horse)
+            crud.create_hisa_submission(db, rule_category="CHECKIN",
+                source_record_type="CheckInRecord", source_record_id=c.id,
+                horse_chip_id=c.horse_chip_id,
+                payload_json=json.dumps(payload), tenant_id=tenant_id)
+            created += 1
+
+    # Surface condition logs
+    from app.models import SurfaceConditionLog
+    for sl in db.query(SurfaceConditionLog).all():
+        if not crud.submission_exists(db, "SurfaceConditionLog", sl.id):
+            payload = hisa_builder.build_surface_submission(sl)
+            crud.create_hisa_submission(db, rule_category="SURFACE",
+                source_record_type="SurfaceConditionLog", source_record_id=sl.id,
+                payload_json=json.dumps(payload), tenant_id=tenant_id)
+            created += 1
+
+    return {"ok": True, "created": created}
+
+
+# ------------------------------------------------------------------ #
 # Tenants (super-admin only)
 # ------------------------------------------------------------------ #
 

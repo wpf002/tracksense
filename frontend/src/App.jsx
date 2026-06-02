@@ -10,6 +10,7 @@ import AdminUsers from './views/AdminUsers'
 import ChangePassword from './views/ChangePassword'
 import Webhooks from './views/Webhooks'
 import MobileCheckin from './views/MobileCheckin'
+import ComplianceDashboard from './views/ComplianceDashboard'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="/admin/webhooks" element={<Webhooks />} />
             <Route path="/settings/password" element={<ChangePassword />} />
             <Route path="/mobile/checkin" element={<MobileCheckin />} />
+            <Route path="/compliance" element={<ComplianceDashboard />} />
             <Route path="*" element={<Navigate to="/live" replace />} />
           </Route>
         </Routes>

@@ -69,6 +69,77 @@ if os.path.exists(db):
             con.commit()
             print(f"[schema] Added {col} column to workout_records.")
 
+    # Phase 3 — HISA reporting tables
+    for tbl, ddl in [
+        ("treatment_records", """
+            CREATE TABLE treatment_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                horse_chip_id VARCHAR NOT NULL REFERENCES horses(chip_id),
+                treatment_date VARCHAR(10) NOT NULL,
+                substance VARCHAR(200) NOT NULL,
+                dose VARCHAR(100),
+                route VARCHAR(100),
+                withdrawal_time_hours INTEGER,
+                prescribed_by VARCHAR(128),
+                administered_by VARCHAR(128),
+                race_id INTEGER REFERENCES races(id),
+                notes TEXT,
+                is_prohibited BOOLEAN NOT NULL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )"""),
+        ("stewards_rulings", """
+            CREATE TABLE stewards_rulings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ruling_date DATETIME NOT NULL,
+                race_id INTEGER REFERENCES races(id),
+                horse_chip_id VARCHAR REFERENCES horses(chip_id),
+                jockey_name VARCHAR(128),
+                rule_violated VARCHAR(200) NOT NULL,
+                description TEXT NOT NULL,
+                penalty VARCHAR(200),
+                status VARCHAR(32) NOT NULL DEFAULT 'draft',
+                deadline_at DATETIME NOT NULL,
+                created_by VARCHAR(36) REFERENCES users(id),
+                tenant_id VARCHAR(36) REFERENCES tenants(id),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )"""),
+        ("surface_condition_logs", """
+            CREATE TABLE surface_condition_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                venue_id VARCHAR NOT NULL REFERENCES venue_records(venue_id),
+                logged_date VARCHAR(10) NOT NULL,
+                surface_type VARCHAR(32) NOT NULL,
+                going_description VARCHAR(64) NOT NULL,
+                moisture_pct REAL,
+                temperature_c REAL,
+                maintenance_notes TEXT,
+                logged_by VARCHAR(128),
+                tenant_id VARCHAR(36) REFERENCES tenants(id),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(venue_id, logged_date)
+            )"""),
+        ("hisa_submissions", """
+            CREATE TABLE hisa_submissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_category VARCHAR(64) NOT NULL,
+                status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                source_record_type VARCHAR(64) NOT NULL,
+                source_record_id INTEGER NOT NULL,
+                horse_chip_id VARCHAR,
+                deadline_at DATETIME,
+                submitted_at DATETIME,
+                payload_json TEXT,
+                response_json TEXT,
+                submitted_by VARCHAR(36) REFERENCES users(id),
+                tenant_id VARCHAR(36) REFERENCES tenants(id),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )"""),
+    ]:
+        if tbl not in tables:
+            con.execute(f"CREATE TABLE {tbl} {ddl}")
+            con.commit()
+            print(f"[schema] Created {tbl} table.")
+
     con.close()
 PYEOF
 

@@ -41,6 +41,9 @@ export default function Shell() {
           <NavLink to="/results">Results</NavLink>
           <NavLink to="/horses">Horses</NavLink>
           <NavLink to="/mobile/checkin">Quick Check-In</NavLink>
+          {(role === 'admin' || role === 'compliance') && (
+            <NavLink to="/compliance">HISA Compliance</NavLink>
+          )}
           {role === 'admin' && <NavLink to="/builder">Add Race (Admin)</NavLink>}
 
           <div className="mt-3 border-t border-border pt-3">

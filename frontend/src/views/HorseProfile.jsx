@@ -9,7 +9,7 @@ import {
   getHorseVet, compareHorses,
   getHorseWorkouts, getHorseCheckins, getHorseTestBarn,
   getHorseBiosensor, getHorseTemperatureAlerts,
-  addWorkout,
+  addWorkout, getHorseTreatments, addTreatment,
 } from '../api/horses'
 import DataTable from '../components/ui/DataTable'
 import TimingDisplay from '../components/ui/TimingDisplay'
@@ -355,6 +355,98 @@ function LogWorkoutModal({ chip_id, onClose, onSaved }) {
   )
 }
 
+function LogTreatmentModal({ chip_id, onClose, onSaved }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [form, setForm] = useState({
+    treatment_date: today, substance: '', dose: '', route: '',
+    withdrawal_time_hours: '', prescribed_by: '', administered_by: '',
+    is_prohibited: false, notes: '',
+  })
+  const [error, setError] = useState(null)
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.type === 'checkbox' ? e.target.checked : e.target.value }))
+
+  const mut = useMutation({
+    mutationFn: () => addTreatment(chip_id, {
+      treatment_date: form.treatment_date,
+      substance: form.substance,
+      dose: form.dose || null,
+      route: form.route || null,
+      withdrawal_time_hours: form.withdrawal_time_hours ? Number(form.withdrawal_time_hours) : null,
+      prescribed_by: form.prescribed_by || null,
+      administered_by: form.administered_by || null,
+      is_prohibited: form.is_prohibited,
+      notes: form.notes || null,
+    }),
+    onSuccess: () => onSaved(),
+    onError: (err) => setError(err.response?.data?.detail ?? 'Save failed'),
+  })
+
+  const field = 'bg-bg border border-border text-text-primary px-2 py-1.5 text-sm focus:outline-none focus:border-accent'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="bg-surface border border-border w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-widest text-text-primary">Log Treatment (ADMC)</span>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-lg">×</button>
+        </div>
+        <div className="p-4 grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 col-span-2">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Date</span>
+            <input type="date" value={form.treatment_date} onChange={set('treatment_date')} className={field} />
+          </label>
+          <label className="flex flex-col gap-1 col-span-2">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Substance *</span>
+            <input value={form.substance} onChange={set('substance')} placeholder="e.g. Phenylbutazone" className={field} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Dose</span>
+            <input value={form.dose} onChange={set('dose')} placeholder="e.g. 4.4 mg/kg" className={field} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Route</span>
+            <select value={form.route} onChange={set('route')} className={field}>
+              <option value="">—</option>
+              {['IV', 'IM', 'oral', 'topical', 'other'].map((r) => <option key={r}>{r}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Withdrawal (hours)</span>
+            <input type="number" value={form.withdrawal_time_hours} onChange={set('withdrawal_time_hours')} className={`${field} font-timing`} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Prescribed by</span>
+            <input value={form.prescribed_by} onChange={set('prescribed_by')} className={field} />
+          </label>
+          <label className="flex flex-col gap-1 col-span-2">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Administered by</span>
+            <input value={form.administered_by} onChange={set('administered_by')} className={field} />
+          </label>
+          <label className="flex items-center gap-2 col-span-2 cursor-pointer">
+            <input type="checkbox" checked={form.is_prohibited} onChange={set('is_prohibited')} className="accent-red-500" />
+            <span className="text-xs text-red-400 font-timing uppercase tracking-wider">Prohibited / restricted substance</span>
+          </label>
+          <label className="flex flex-col gap-1 col-span-2">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Notes</span>
+            <input value={form.notes} onChange={set('notes')} className={field} />
+          </label>
+        </div>
+        {error && <p className="px-4 text-red-400 text-xs font-timing">{error}</p>}
+        <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
+          <button onClick={onClose} className="text-xs font-timing uppercase tracking-widest border border-border text-text-muted px-3 py-1.5 hover:text-text-primary">Cancel</button>
+          <button
+            onClick={() => { setError(null); mut.mutate() }}
+            disabled={mut.isPending || !form.substance}
+            className="text-xs font-timing font-bold uppercase tracking-widest bg-accent text-bg px-4 py-1.5 hover:bg-accent-dim disabled:opacity-40"
+          >
+            {mut.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function HorseDetail({ chip_id }) {
   const [showAllTestBarn, setShowAllTestBarn] = useState(false)
 
@@ -402,9 +494,15 @@ function HorseDetail({ chip_id }) {
     queryFn: () => getHorseTemperatureAlerts(chip_id),
     enabled: !!horse,
   })
+  const { data: treatments = [], isLoading: loadingTreatments } = useQuery({
+    queryKey: ['horse-treatments', chip_id],
+    queryFn: () => getHorseTreatments(chip_id),
+    enabled: !!horse,
+  })
   const qc = useQueryClient()
   const [expandedWorkoutId, setExpandedWorkoutId] = useState(null)
   const [showLogWorkout, setShowLogWorkout] = useState(false)
+  const [showLogTreatment, setShowLogTreatment] = useState(false)
 
   if (loadingHorse)
     return <p className="p-6 text-text-muted text-xs font-timing tracking-widest">Loading...</p>
@@ -792,6 +890,53 @@ function HorseDetail({ chip_id }) {
           </>
         )}
       </div>
+
+      {/* ── SECTION 5.5: Treatment Records (ADMC) ── */}
+      <div className="border border-border bg-surface mb-6">
+        <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-0.5 h-3.5 bg-accent flex-shrink-0" />
+            <span className="text-xs font-semibold uppercase tracking-widest text-text-muted">
+              Treatment Records (ADMC)
+            </span>
+          </div>
+          <button
+            onClick={() => setShowLogTreatment(true)}
+            className="text-xs font-timing uppercase tracking-widest border border-border text-text-muted hover:border-accent hover:text-accent px-2 py-1 transition-colors"
+          >
+            + Log Treatment
+          </button>
+        </div>
+        {loadingTreatments ? (
+          <SectionLoading />
+        ) : treatments.length === 0 ? (
+          <p className="px-4 py-3 text-text-muted text-xs font-timing">No treatment records</p>
+        ) : (
+          <DataTable
+            columns={[
+              { key: 'treatment_date', label: 'Date', render: (r) => <span className="font-timing text-xs text-text-muted">{r.treatment_date}</span> },
+              { key: 'substance', label: 'Substance', render: (r) => (
+                <span className={`font-medium ${r.is_prohibited ? 'text-red-400' : 'text-text-primary'}`}>
+                  {r.substance}{r.is_prohibited && ' ⚠'}
+                </span>
+              )},
+              { key: 'dose', label: 'Dose/Route', render: (r) => <span className="text-xs text-text-muted">{r.dose ?? '—'}{r.route ? ` (${r.route})` : ''}</span> },
+              { key: 'withdrawal_time_hours', label: 'Withdrawal', render: (r) => <span className="font-timing text-xs text-text-muted">{r.withdrawal_time_hours != null ? `${r.withdrawal_time_hours}h` : '—'}</span> },
+              { key: 'administered_by', label: 'Administered by', render: (r) => <span className="text-xs text-text-muted">{r.administered_by ?? r.prescribed_by ?? '—'}</span> },
+            ]}
+            rows={treatments.map((t) => ({ ...t }))}
+            emptyMessage=""
+          />
+        )}
+      </div>
+
+      {showLogTreatment && (
+        <LogTreatmentModal
+          chip_id={chip_id}
+          onClose={() => setShowLogTreatment(false)}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ['horse-treatments', chip_id] }); setShowLogTreatment(false) }}
+        />
+      )}
 
       {/* ── SECTION 6: Vet Records ── */}
       <SectionShell title="Vet Records">

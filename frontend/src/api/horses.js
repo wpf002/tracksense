@@ -33,6 +33,12 @@ export const getHorseWorkouts = (chip_id) =>
 export const addWorkout = (chip_id, body) =>
   client.post(`/horses/${chip_id}/workouts`, body).then((r) => r.data)
 
+export const getHorseTreatments = (chip_id) =>
+  client.get(`/horses/${chip_id}/treatments`).then((r) => r.data.treatments)
+
+export const addTreatment = (chip_id, body) =>
+  client.post(`/horses/${chip_id}/treatments`, body).then((r) => r.data)
+
 export const getHorseCheckins = (chip_id) =>
   client.get(`/horses/${chip_id}/checkins`).then((r) => r.data.checkins)
 
