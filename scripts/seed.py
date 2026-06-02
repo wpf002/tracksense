@@ -109,37 +109,37 @@ WORKOUT_NOTES = [
 # ------------------------------------------------------------------ #
 
 HORSES = [
-    # EPCs unchanged — real-world champion racehorses
-    {"epc": "E200681100000001AABB0001", "name": "Secretariat",       "breed": "Thoroughbred", "dob": "2020-03-30", "surface": "Dirt",      "speed": 0.88, "profile": "pacer"},
-    {"epc": "E200681100000001AABB0002", "name": "Winx",              "breed": "Thoroughbred", "dob": "2011-09-14", "surface": "Turf",      "speed": 0.90, "profile": "closer"},
-    {"epc": "E200681100000001AABB0003", "name": "Frankel",           "breed": "Thoroughbred", "dob": "2008-02-11", "surface": "Turf",      "speed": 0.91, "profile": "pacer"},
-    {"epc": "E200681100000001AABB0004", "name": "Black Caviar",      "breed": "Thoroughbred", "dob": "2006-08-18", "surface": "Turf",      "speed": 0.92, "profile": "pacer"},
-    {"epc": "E200681100000001AABB0005", "name": "American Pharoah",  "breed": "Thoroughbred", "dob": "2012-02-02", "surface": "Dirt",      "speed": 0.93, "profile": "midfield"},
-    {"epc": "E200681100000001AABB0006", "name": "Justify",           "breed": "Thoroughbred", "dob": "2015-03-28", "surface": "Dirt",      "speed": 0.93, "profile": "midfield"},
-    {"epc": "E200681100000001AABB0007", "name": "Zenyatta",          "breed": "Thoroughbred", "dob": "2004-04-01", "surface": "Dirt",      "speed": 0.93, "profile": "closer"},
-    {"epc": "E200681100000001AABB0008", "name": "Enable",            "breed": "Thoroughbred", "dob": "2014-02-19", "surface": "Turf",      "speed": 0.94, "profile": "closer"},
-    {"epc": "E200681100000001AABB0009", "name": "Sea The Stars",     "breed": "Thoroughbred", "dob": "2006-04-06", "surface": "Turf",      "speed": 0.94, "profile": "midfield"},
-    {"epc": "E200681100000001AABB000A", "name": "Deep Impact",       "breed": "Thoroughbred", "dob": "2002-03-25", "surface": "Turf",      "speed": 0.94, "profile": "closer"},
-    {"epc": "E200681100000001AABB000B", "name": "Arrogate",          "breed": "Thoroughbred", "dob": "2013-05-19", "surface": "Dirt",      "speed": 0.95, "profile": "closer"},
-    {"epc": "E200681100000001AABB000C", "name": "Flightline",        "breed": "Thoroughbred", "dob": "2018-03-02", "surface": "Dirt",      "speed": 0.95, "profile": "pacer"},
-    {"epc": "E200681100000001AABB000D", "name": "Curlin",            "breed": "Thoroughbred", "dob": "2004-03-30", "surface": "Dirt",      "speed": 0.96, "profile": "midfield"},
-    {"epc": "E200681100000001AABB000E", "name": "Rachel Alexandra",  "breed": "Thoroughbred", "dob": "2006-02-26", "surface": "Dirt",      "speed": 0.96, "profile": "closer"},
-    {"epc": "E200681100000001AABB000F", "name": "California Chrome", "breed": "Thoroughbred", "dob": "2011-02-18", "surface": "Dirt",      "speed": 0.96, "profile": "midfield"},
-    {"epc": "E200681100000001AABB0010", "name": "Gun Runner",        "breed": "Thoroughbred", "dob": "2013-03-20", "surface": "Dirt",      "speed": 0.97, "profile": "pacer"},
-    {"epc": "E200681100000001AABB0011", "name": "Beholder",          "breed": "Thoroughbred", "dob": "2010-01-21", "surface": "Dirt",      "speed": 0.97, "profile": "closer"},
-    {"epc": "E200681100000001AABB0012", "name": "Songbird",          "breed": "Thoroughbred", "dob": "2013-02-07", "surface": "Dirt",      "speed": 0.97, "profile": "midfield"},
-    {"epc": "E200681100000001AABB0013", "name": "Golden Sixty",      "breed": "Thoroughbred", "dob": "2017-01-24", "surface": "Turf",      "speed": 0.97, "profile": "closer"},
-    {"epc": "E200681100000001AABB0014", "name": "Equinox",           "breed": "Thoroughbred", "dob": "2019-02-23", "surface": "Turf",      "speed": 0.98, "profile": "midfield"},
-    {"epc": "E200681100000001AABB0015", "name": "Galileo",           "breed": "Thoroughbred", "dob": "1998-03-30", "surface": "Turf",      "speed": 0.98, "profile": "midfield"},
-    {"epc": "E200681100000001AABB0016", "name": "Orb",               "breed": "Thoroughbred", "dob": "2010-02-28", "surface": "Dirt",      "speed": 0.98, "profile": "closer"},
-    {"epc": "E200681100000001AABB0017", "name": "Havre de Grace",    "breed": "Thoroughbred", "dob": "2008-02-17", "surface": "Dirt",      "speed": 0.99, "profile": "pacer"},
-    {"epc": "E200681100000001AABB0018", "name": "Accelerate",        "breed": "Thoroughbred", "dob": "2013-02-25", "surface": "Dirt",      "speed": 0.99, "profile": "closer"},
-    {"epc": "E200681100000001AABB0019", "name": "McKinzie",          "breed": "Thoroughbred", "dob": "2015-03-08", "surface": "Dirt",      "speed": 0.99, "profile": "midfield"},
-    {"epc": "E200681100000001AABB001A", "name": "Vino Rosso",        "breed": "Thoroughbred", "dob": "2015-05-01", "surface": "Dirt",      "speed": 1.00, "profile": "pacer"},
-    {"epc": "E200681100000001AABB001B", "name": "Essential Quality", "breed": "Thoroughbred", "dob": "2018-01-20", "surface": "Dirt",      "speed": 1.00, "profile": "midfield"},
-    {"epc": "E200681100000001AABB001C", "name": "Tapit Trice",       "breed": "Thoroughbred", "dob": "2020-04-14", "surface": "Dirt",      "speed": 1.00, "profile": "closer"},
-    {"epc": "E200681100000001AABB001D", "name": "Code of Honor",     "breed": "Thoroughbred", "dob": "2016-03-12", "surface": "Dirt",      "speed": 1.01, "profile": "pacer"},
-    {"epc": "E200681100000001AABB001E", "name": "Monomoy Girl",      "breed": "Thoroughbred", "dob": "2015-02-04", "surface": "Dirt",      "speed": 1.01, "profile": "closer"},
+    # chip_id = Jockey Club LF microchip (ISO 11784/11785, 15-digit) — demo values
+    {"chip_id": "985112000000001", "name": "Secretariat",       "breed": "Thoroughbred", "dob": "2020-03-30", "surface": "Dirt",      "speed": 0.88, "profile": "pacer"},
+    {"chip_id": "985112000000002", "name": "Winx",              "breed": "Thoroughbred", "dob": "2011-09-14", "surface": "Turf",      "speed": 0.90, "profile": "closer"},
+    {"chip_id": "985112000000003", "name": "Frankel",           "breed": "Thoroughbred", "dob": "2008-02-11", "surface": "Turf",      "speed": 0.91, "profile": "pacer"},
+    {"chip_id": "985112000000004", "name": "Black Caviar",      "breed": "Thoroughbred", "dob": "2006-08-18", "surface": "Turf",      "speed": 0.92, "profile": "pacer"},
+    {"chip_id": "985112000000005", "name": "American Pharoah",  "breed": "Thoroughbred", "dob": "2012-02-02", "surface": "Dirt",      "speed": 0.93, "profile": "midfield"},
+    {"chip_id": "985112000000006", "name": "Justify",           "breed": "Thoroughbred", "dob": "2015-03-28", "surface": "Dirt",      "speed": 0.93, "profile": "midfield"},
+    {"chip_id": "985112000000007", "name": "Zenyatta",          "breed": "Thoroughbred", "dob": "2004-04-01", "surface": "Dirt",      "speed": 0.93, "profile": "closer"},
+    {"chip_id": "985112000000008", "name": "Enable",            "breed": "Thoroughbred", "dob": "2014-02-19", "surface": "Turf",      "speed": 0.94, "profile": "closer"},
+    {"chip_id": "985112000000009", "name": "Sea The Stars",     "breed": "Thoroughbred", "dob": "2006-04-06", "surface": "Turf",      "speed": 0.94, "profile": "midfield"},
+    {"chip_id": "985112000000010", "name": "Deep Impact",       "breed": "Thoroughbred", "dob": "2002-03-25", "surface": "Turf",      "speed": 0.94, "profile": "closer"},
+    {"chip_id": "985112000000011", "name": "Arrogate",          "breed": "Thoroughbred", "dob": "2013-05-19", "surface": "Dirt",      "speed": 0.95, "profile": "closer"},
+    {"chip_id": "985112000000012", "name": "Flightline",        "breed": "Thoroughbred", "dob": "2018-03-02", "surface": "Dirt",      "speed": 0.95, "profile": "pacer"},
+    {"chip_id": "985112000000013", "name": "Curlin",            "breed": "Thoroughbred", "dob": "2004-03-30", "surface": "Dirt",      "speed": 0.96, "profile": "midfield"},
+    {"chip_id": "985112000000014", "name": "Rachel Alexandra",  "breed": "Thoroughbred", "dob": "2006-02-26", "surface": "Dirt",      "speed": 0.96, "profile": "closer"},
+    {"chip_id": "985112000000015", "name": "California Chrome", "breed": "Thoroughbred", "dob": "2011-02-18", "surface": "Dirt",      "speed": 0.96, "profile": "midfield"},
+    {"chip_id": "985112000000016", "name": "Gun Runner",        "breed": "Thoroughbred", "dob": "2013-03-20", "surface": "Dirt",      "speed": 0.97, "profile": "pacer"},
+    {"chip_id": "985112000000017", "name": "Beholder",          "breed": "Thoroughbred", "dob": "2010-01-21", "surface": "Dirt",      "speed": 0.97, "profile": "closer"},
+    {"chip_id": "985112000000018", "name": "Songbird",          "breed": "Thoroughbred", "dob": "2013-02-07", "surface": "Dirt",      "speed": 0.97, "profile": "midfield"},
+    {"chip_id": "985112000000019", "name": "Golden Sixty",      "breed": "Thoroughbred", "dob": "2017-01-24", "surface": "Turf",      "speed": 0.97, "profile": "closer"},
+    {"chip_id": "985112000000020", "name": "Equinox",           "breed": "Thoroughbred", "dob": "2019-02-23", "surface": "Turf",      "speed": 0.98, "profile": "midfield"},
+    {"chip_id": "985112000000021", "name": "Galileo",           "breed": "Thoroughbred", "dob": "1998-03-30", "surface": "Turf",      "speed": 0.98, "profile": "midfield"},
+    {"chip_id": "985112000000022", "name": "Orb",               "breed": "Thoroughbred", "dob": "2010-02-28", "surface": "Dirt",      "speed": 0.98, "profile": "closer"},
+    {"chip_id": "985112000000023", "name": "Havre de Grace",    "breed": "Thoroughbred", "dob": "2008-02-17", "surface": "Dirt",      "speed": 0.99, "profile": "pacer"},
+    {"chip_id": "985112000000024", "name": "Accelerate",        "breed": "Thoroughbred", "dob": "2013-02-25", "surface": "Dirt",      "speed": 0.99, "profile": "closer"},
+    {"chip_id": "985112000000025", "name": "McKinzie",          "breed": "Thoroughbred", "dob": "2015-03-08", "surface": "Dirt",      "speed": 0.99, "profile": "midfield"},
+    {"chip_id": "985112000000026", "name": "Vino Rosso",        "breed": "Thoroughbred", "dob": "2015-05-01", "surface": "Dirt",      "speed": 1.00, "profile": "pacer"},
+    {"chip_id": "985112000000027", "name": "Essential Quality", "breed": "Thoroughbred", "dob": "2018-01-20", "surface": "Dirt",      "speed": 1.00, "profile": "midfield"},
+    {"chip_id": "985112000000028", "name": "Tapit Trice",       "breed": "Thoroughbred", "dob": "2020-04-14", "surface": "Dirt",      "speed": 1.00, "profile": "closer"},
+    {"chip_id": "985112000000029", "name": "Code of Honor",     "breed": "Thoroughbred", "dob": "2016-03-12", "surface": "Dirt",      "speed": 1.01, "profile": "pacer"},
+    {"chip_id": "985112000000030", "name": "Monomoy Girl",      "breed": "Thoroughbred", "dob": "2015-02-04", "surface": "Dirt",      "speed": 1.01, "profile": "closer"},
 ]
 
 # ------------------------------------------------------------------ #
@@ -335,7 +335,7 @@ def seed_horses(session) -> dict:
         trainer_name = TRAINERS[idx % len(TRAINERS)]
         owner_name   = OWNERS[idx % len(OWNERS)]
         horse = Horse(
-            epc=h["epc"],
+            chip_id=h["chip_id"],
             name=h["name"],
             breed=h["breed"],
             date_of_birth=h["dob"],
@@ -343,16 +343,16 @@ def seed_horses(session) -> dict:
             implant_vet="Dr. Harriet Clarke",
         )
         session.add(horse)
-        session.add(Owner(  horse_epc=h["epc"], owner_name=owner_name,   from_date="2023-06-01"))
-        session.add(Trainer(horse_epc=h["epc"], trainer_name=trainer_name, from_date="2023-06-01"))
+        session.add(Owner(  horse_chip_id=h["chip_id"], owner_name=owner_name,   from_date="2023-06-01"))
+        session.add(Trainer(horse_chip_id=h["chip_id"], trainer_name=trainer_name, from_date="2023-06-01"))
         session.add(VetRecord(
-            horse_epc=h["epc"],
+            horse_chip_id=h["chip_id"],
             event_date="2023-06-01",
             event_type="implant",
-            notes="UHF Gen2 glass capsule, lower lip",
+            notes="LF microchip (ISO 11784/11785 FDX-B), Jockey Club registration",
             vet_name="Dr. Harriet Clarke",
         ))
-        horse_map[h["epc"]] = horse
+        horse_map[h["chip_id"]] = horse
     session.commit()
     return horse_map
 
@@ -391,7 +391,7 @@ def seed_vet_records(session, today: date) -> int:
         # 1-2 pre-race clearances
         for d in sorted(random.sample(range(day_count), random.randint(1, 2))):
             session.add(VetRecord(
-                horse_epc=h["epc"],
+                horse_chip_id=h["chip_id"],
                 event_date=(start + timedelta(days=d)).isoformat(),
                 event_type="clearance",
                 notes="Cleared to race — no abnormalities detected",
@@ -401,7 +401,7 @@ def seed_vet_records(session, today: date) -> int:
 
         # Annual vaccination
         session.add(VetRecord(
-            horse_epc=h["epc"],
+            horse_chip_id=h["chip_id"],
             event_date=(start + timedelta(days=random.randint(0, day_count - 1))).isoformat(),
             event_type="vaccination",
             notes="Annual vaccination administered",
@@ -412,7 +412,7 @@ def seed_vet_records(session, today: date) -> int:
         # ~30% treatment
         if random.random() < 0.30:
             session.add(VetRecord(
-                horse_epc=h["epc"],
+                horse_chip_id=h["chip_id"],
                 event_date=(start + timedelta(days=random.randint(0, day_count - 1))).isoformat(),
                 event_type="treatment",
                 notes=random.choice([
@@ -481,16 +481,16 @@ def seed_races(session, venue_map: dict, today: date) -> tuple:
                 horse_times.sort(key=lambda x: x[1][-1])
 
                 for position, (h, times, saddle_cloth) in enumerate(horse_times, start=1):
-                    epc = h["epc"]
+                    chip_id = h["chip_id"]
                     session.add(RaceEntry(
                         race_id=race.id,
-                        horse_epc=epc,
+                        horse_chip_id=chip_id,
                         saddle_cloth=saddle_cloth,
                         jockey=random.choice(JOCKEYS),
                     ))
                     session.add(RaceResult(
                         race_id=race.id,
-                        horse_epc=epc,
+                        horse_chip_id=chip_id,
                         finish_position=position,
                         elapsed_ms=times[-1],
                     ))
@@ -500,8 +500,8 @@ def seed_races(session, venue_map: dict, today: date) -> tuple:
                     "race_id":     race.id,
                     "race_date":   race_dt,
                     "venue_id":    venue_id,
-                    "field":       [h["epc"] for h in field],
-                    "results":     [(h["epc"], pos) for pos, (h, _, _) in enumerate(horse_times, start=1)],
+                    "field":       [h["chip_id"] for h in field],
+                    "results":     [(h["chip_id"], pos) for pos, (h, _, _) in enumerate(horse_times, start=1)],
                     "finish_time": race_dt + timedelta(milliseconds=last_ms + 2000),
                 })
 
@@ -525,7 +525,7 @@ def seed_workouts(session, race_records: list, today: date) -> int:
     total          = 0
 
     for idx, h in enumerate(HORSES):
-        epc          = h["epc"]
+        chip_id          = h["chip_id"]
         trainer_name = TRAINERS[idx % len(TRAINERS)]
         n_workouts   = random.randint(12, 20)
 
@@ -553,7 +553,7 @@ def seed_workouts(session, race_records: list, today: date) -> int:
                 note = note.replace("{jockey}", random.choice(JOCKEYS))
 
             session.add(WorkoutRecord(
-                horse_epc=epc,
+                horse_chip_id=chip_id,
                 workout_date=workout_date.isoformat(),
                 distance_m=distance_m,
                 surface=h["surface"],
@@ -577,14 +577,14 @@ def seed_checkins(session, race_records: list) -> int:
     for race_info in race_records:
         race_dt = race_info["race_date"]
         race_id = race_info["race_id"]
-        for epc in race_info["field"]:
+        for chip_id in race_info["field"]:
             verified   = random.random() > 0.01  # 99% verified
             scanned_at = race_dt - timedelta(minutes=random.randint(45, 90))
             # Realistic temperature: 37.2-38.8°C; ~5% elevated (>38.5°C)
             temp_c = round(random.gauss(37.9, 0.35), 1)
             temp_c = max(36.5, min(40.0, temp_c))   # clamp to physiological range
             session.add(CheckInRecord(
-                horse_epc=epc,
+                horse_chip_id=chip_id,
                 race_id=race_id,
                 scanned_at=scanned_at,
                 scanned_by=random.choice(CHECKIN_OFFICIALS),
@@ -606,13 +606,13 @@ def seed_test_barn(session, race_records: list) -> int:
         finish_time = race_info["finish_time"]
         top3        = sorted(race_info["results"], key=lambda x: x[1])[:3]
 
-        for epc, position in top3:
+        for chip_id, position in top3:
             checkin_at  = finish_time + timedelta(minutes=random.randint(5, 15))
             checkout_at = checkin_at  + timedelta(minutes=random.randint(45, 90))
             result      = random.choices(["Clear", "Pending", "Void"], weights=[97, 2, 1])[0]
             sample_id   = f"TB-{race_id:04d}-{position:02d}-{random.randint(1000, 9999)}"
             session.add(TestBarnRecord(
-                horse_epc=epc,
+                horse_chip_id=chip_id,
                 race_id=race_id,
                 checkin_at=checkin_at,
                 checkin_by="Test Barn Official",
@@ -714,11 +714,11 @@ def run(force: bool = False) -> None:
         print(f"Test barn records: {n_test_barn}")
         print("===================================\n")
 
-        print("First 5 horse EPCs for testing Horse Profile:")
+        print("First 5 horse chip IDs for testing Horse Profile:")
         for i, h in enumerate(HORSES[:5]):
             trainer_name = TRAINERS[i % len(TRAINERS)]
             owner_name   = OWNERS[i % len(OWNERS)]
-            print(f"  {i + 1}. {h['epc']} — {h['name']} ({trainer_name} / {owner_name})")
+            print(f"  {i + 1}. {h['chip_id']} — {h['name']} ({trainer_name} / {owner_name})")
 
     except Exception:
         session.rollback()

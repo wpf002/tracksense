@@ -72,9 +72,9 @@ def _seed_finished_race(db):
     venue = VenueRecord(venue_id="EXPORT-V", name="Export Venue", total_distance_m=1200.0)
     db.add(venue)
 
-    horse = Horse(epc="EPC-EXPORT-1", name="Thunder Road")
+    horse = Horse(chip_id="985112000100013", name="Thunder Road")
     db.add(horse)
-    horse2 = Horse(epc="EPC-EXPORT-2", name="Silver Bullet")
+    horse2 = Horse(chip_id="985112000100014", name="Silver Bullet")
     db.add(horse2)
     db.flush()
 
@@ -90,12 +90,12 @@ def _seed_finished_race(db):
     db.add(race)
     db.flush()
 
-    entry1 = RaceEntry(race_id=race.id, horse_epc="EPC-EXPORT-1", saddle_cloth="1")
-    entry2 = RaceEntry(race_id=race.id, horse_epc="EPC-EXPORT-2", saddle_cloth="2")
+    entry1 = RaceEntry(race_id=race.id, horse_chip_id="985112000100013", saddle_cloth="1")
+    entry2 = RaceEntry(race_id=race.id, horse_chip_id="985112000100014", saddle_cloth="2")
     db.add_all([entry1, entry2])
 
-    result1 = RaceResult(race_id=race.id, horse_epc="EPC-EXPORT-1", finish_position=1, elapsed_ms=75000)
-    result2 = RaceResult(race_id=race.id, horse_epc="EPC-EXPORT-2", finish_position=2, elapsed_ms=76200)
+    result1 = RaceResult(race_id=race.id, horse_chip_id="985112000100013", finish_position=1, elapsed_ms=75000)
+    result2 = RaceResult(race_id=race.id, horse_chip_id="985112000100014", finish_position=2, elapsed_ms=76200)
     db.add_all([result1, result2])
 
     db.commit()

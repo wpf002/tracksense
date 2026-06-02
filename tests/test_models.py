@@ -35,21 +35,21 @@ def db():
 # ------------------------------------------------------------------ #
 
 def test_create_horse(db):
-    result = crud.create_horse(db, epc="EPC001", name="Thunderstrike")
+    result = crud.create_horse(db, chip_id="985112000100001", name="Thunderstrike")
     assert result["ok"] is True
-    assert result["epc"] == "EPC001"
+    assert result["chip_id"] == "985112000100001"
 
 
 def test_create_horse_duplicate(db):
-    crud.create_horse(db, epc="EPC001", name="Thunderstrike")
-    result = crud.create_horse(db, epc="EPC001", name="Other")
+    crud.create_horse(db, chip_id="985112000100001", name="Thunderstrike")
+    result = crud.create_horse(db, chip_id="985112000100001", name="Other")
     assert result["ok"] is False
     assert "already exists" in result["error"]
 
 
 def test_get_horse(db):
-    crud.create_horse(db, epc="EPC002", name="Bolt", breed="Thoroughbred")
-    horse = crud.get_horse(db, "EPC002")
+    crud.create_horse(db, chip_id="985112000100002", name="Bolt", breed="Thoroughbred")
+    horse = crud.get_horse(db, "985112000100002")
     assert horse is not None
     assert horse.name == "Bolt"
     assert horse.breed == "Thoroughbred"
@@ -60,25 +60,25 @@ def test_get_horse_missing(db):
 
 
 def test_list_horses(db):
-    crud.create_horse(db, epc="EPC001", name="A")
-    crud.create_horse(db, epc="EPC002", name="B")
+    crud.create_horse(db, chip_id="985112000100001", name="A")
+    crud.create_horse(db, chip_id="985112000100002", name="B")
     horses = crud.list_horses(db)
     assert len(horses) == 2
 
 
 def test_list_horses_pagination(db):
     for i in range(5):
-        crud.create_horse(db, epc=f"EPC{i:03d}", name=f"Horse{i}")
+        crud.create_horse(db, chip_id=f"EPC{i:03d}", name=f"Horse{i}")
     page = crud.list_horses(db, skip=2, limit=2)
     assert len(page) == 2
 
 
 def test_add_owner(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    result = crud.add_owner(db, "EPC001", "Alice", from_date="2024-01-01")
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    result = crud.add_owner(db, "985112000100001", "Alice", from_date="2024-01-01")
     assert result["ok"] is True
 
-    horse = crud.get_horse(db, "EPC001")
+    horse = crud.get_horse(db, "985112000100001")
     assert horse is not None
     assert len(horse.owners) == 1
     assert horse.owners[0].owner_name == "Alice"
@@ -90,11 +90,11 @@ def test_add_owner_missing_horse(db):
 
 
 def test_add_trainer(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    result = crud.add_trainer(db, "EPC001", "Bob")
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    result = crud.add_trainer(db, "985112000100001", "Bob")
     assert result["ok"] is True
 
-    horse = crud.get_horse(db, "EPC001")
+    horse = crud.get_horse(db, "985112000100001")
     assert horse is not None
     assert horse.trainers[0].trainer_name == "Bob"
 
@@ -163,8 +163,8 @@ def test_list_races(db_with_venue):
 # ------------------------------------------------------------------ #
 
 def test_add_vet_record(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    result = crud.add_vet_record(db, "EPC001", "2026-04-01", "implant", vet_name="Dr. Smith")
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    result = crud.add_vet_record(db, "985112000100001", "2026-04-01", "implant", vet_name="Dr. Smith")
     assert result["ok"] is True
     assert "id" in result
 
@@ -175,10 +175,10 @@ def test_add_vet_record_missing_horse(db):
 
 
 def test_get_vet_records(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    crud.add_vet_record(db, "EPC001", "2026-03-01", "clearance")
-    crud.add_vet_record(db, "EPC001", "2026-04-01", "implant")
-    records = crud.get_vet_records(db, "EPC001")
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    crud.add_vet_record(db, "985112000100001", "2026-03-01", "clearance")
+    crud.add_vet_record(db, "985112000100001", "2026-04-01", "implant")
+    records = crud.get_vet_records(db, "985112000100001")
     assert len(records) == 2
     # Newest first
     assert records[0].event_date == "2026-04-01"
@@ -189,8 +189,8 @@ def test_get_vet_records(db):
 # ------------------------------------------------------------------ #
 
 def test_add_workout(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    result = crud.add_workout(db, "EPC001", "2026-03-15", 800.0,
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    result = crud.add_workout(db, "985112000100001", "2026-03-15", 800.0,
                               surface="Turf", duration_ms=52000,
                               track_condition="Fast", trainer_name="J. Cummings",
                               notes="Strong gallop")
@@ -205,19 +205,19 @@ def test_add_workout_missing_horse(db):
 
 
 def test_get_workouts(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    crud.add_workout(db, "EPC001", "2026-03-01", 600.0)
-    crud.add_workout(db, "EPC001", "2026-03-10", 800.0)
-    crud.add_workout(db, "EPC001", "2026-03-20", 1000.0)
-    records = crud.get_workouts(db, "EPC001")
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    crud.add_workout(db, "985112000100001", "2026-03-01", 600.0)
+    crud.add_workout(db, "985112000100001", "2026-03-10", 800.0)
+    crud.add_workout(db, "985112000100001", "2026-03-20", 1000.0)
+    records = crud.get_workouts(db, "985112000100001")
     assert len(records) == 3
     # Newest first
     assert records[0].workout_date == "2026-03-20"
 
 
 def test_get_workouts_empty(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    assert crud.get_workouts(db, "EPC001") == []
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    assert crud.get_workouts(db, "985112000100001") == []
 
 
 # ------------------------------------------------------------------ #
@@ -225,8 +225,8 @@ def test_get_workouts_empty(db):
 # ------------------------------------------------------------------ #
 
 def test_add_checkin(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    result = crud.add_checkin(db, "EPC001", scanned_by="Head Steward",
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    result = crud.add_checkin(db, "985112000100001", scanned_by="Head Steward",
                               location="Paddock Check-In", verified=True)
     assert result["ok"] is True
     assert "id" in result
@@ -238,19 +238,19 @@ def test_add_checkin_missing_horse(db):
 
 
 def test_get_checkins(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    crud.add_checkin(db, "EPC001", scanned_by="Steward A")
-    crud.add_checkin(db, "EPC001", scanned_by="Steward B")
-    records = crud.get_checkins(db, "EPC001")
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    crud.add_checkin(db, "985112000100001", scanned_by="Steward A")
+    crud.add_checkin(db, "985112000100001", scanned_by="Steward B")
+    records = crud.get_checkins(db, "985112000100001")
     assert len(records) == 2
 
 
 def test_get_checkins_filter_by_race(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    crud.add_checkin(db, "EPC001", race_id=1)
-    crud.add_checkin(db, "EPC001", race_id=2)
-    crud.add_checkin(db, "EPC001", race_id=1)
-    records = crud.get_checkins(db, "EPC001", race_id=1)
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    crud.add_checkin(db, "985112000100001", race_id=1)
+    crud.add_checkin(db, "985112000100001", race_id=2)
+    crud.add_checkin(db, "985112000100001", race_id=1)
+    records = crud.get_checkins(db, "985112000100001", race_id=1)
     assert len(records) == 2
 
 
@@ -259,8 +259,8 @@ def test_get_checkins_filter_by_race(db):
 # ------------------------------------------------------------------ #
 
 def test_test_barn_checkin(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    result = crud.test_barn_checkin(db, "EPC001", checkin_by="TB Official",
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    result = crud.test_barn_checkin(db, "985112000100001", checkin_by="TB Official",
                                     sample_id="TB-0001-01-1234")
     assert result["ok"] is True
     assert "id" in result
@@ -272,8 +272,8 @@ def test_test_barn_checkin_missing_horse(db):
 
 
 def test_test_barn_checkout(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    checkin = crud.test_barn_checkin(db, "EPC001", checkin_by="TB Official")
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    checkin = crud.test_barn_checkin(db, "985112000100001", checkin_by="TB Official")
     record_id = checkin["id"]
 
     result = crud.test_barn_checkout(db, record_id, checkout_by="TB Official", result="Clear")
@@ -293,16 +293,16 @@ def test_test_barn_checkout_missing_record(db):
 
 
 def test_get_test_barn_records(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    crud.test_barn_checkin(db, "EPC001", sample_id="TB-0001-01-1111")
-    crud.test_barn_checkin(db, "EPC001", sample_id="TB-0002-01-2222")
-    records = crud.get_test_barn_records(db, "EPC001")
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    crud.test_barn_checkin(db, "985112000100001", sample_id="TB-0001-01-1111")
+    crud.test_barn_checkin(db, "985112000100001", sample_id="TB-0002-01-2222")
+    records = crud.get_test_barn_records(db, "985112000100001")
     assert len(records) == 2
 
 
 def test_get_test_barn_records_empty(db):
-    crud.create_horse(db, epc="EPC001", name="Bolt")
-    assert crud.get_test_barn_records(db, "EPC001") == []
+    crud.create_horse(db, chip_id="985112000100001", name="Bolt")
+    assert crud.get_test_barn_records(db, "985112000100001") == []
 
 
 # ------------------------------------------------------------------ #

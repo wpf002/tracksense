@@ -105,10 +105,10 @@ def export_racing_australia(
 
     for r in sorted_results:
         # Resolve horse name
-        horse = crud.get_horse(db, r.horse_epc)
+        horse = crud.get_horse(db, r.horse_chip_id)
         result_el = SubElement(race_el, "Result")
         result_el.set("finishPosition", str(r.finish_position))
-        result_el.set("horseEpc", r.horse_epc)
+        result_el.set("horseEpc", r.horse_chip_id)
         result_el.set("horseName", horse.name if horse else "")
         result_el.set("elapsedMs", str(r.elapsed_ms))
         result_el.set("finishTime", _elapsed_to_time_str(r.elapsed_ms))
@@ -146,10 +146,10 @@ def export_bha(
 
     finishers = []
     for r in sorted_results:
-        horse = crud.get_horse(db, r.horse_epc)
+        horse = crud.get_horse(db, r.horse_chip_id)
         finishers.append({
             "position": r.finish_position,
-            "horseId": r.horse_epc,
+            "horseId": r.horse_chip_id,
             "horseName": horse.name if horse else None,
             "elapsedMs": r.elapsed_ms,
             "finishTime": _elapsed_to_time_str(r.elapsed_ms),
@@ -213,10 +213,10 @@ def export_jockey_club(
     SubElement(race_card, "Status").text = race.status
 
     for r in sorted_results:
-        horse = crud.get_horse(db, r.horse_epc)
+        horse = crud.get_horse(db, r.horse_chip_id)
         hr = SubElement(race_card, "HorseResult")
         SubElement(hr, "FinishPosition").text = str(r.finish_position)
-        SubElement(hr, "HorseIdentifier").text = r.horse_epc
+        SubElement(hr, "HorseIdentifier").text = r.horse_chip_id
         SubElement(hr, "HorseName").text = horse.name if horse else ""
         SubElement(hr, "ElapsedMilliseconds").text = str(r.elapsed_ms)
         SubElement(hr, "FinishTime").text = _elapsed_to_time_str(r.elapsed_ms)

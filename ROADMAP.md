@@ -36,9 +36,9 @@ operations module · compliance dashboard.
 
 | Phase | Title | Duration | Status |
 |-------|-------|----------|--------|
-| 0 | Pivot Documentation | 1 week | 🟡 **IN PROGRESS** |
-| 1 | Strip the UHF/LLRP Architecture | 2 weeks | ⬜ Not started |
-| 2 | LF Chip Identity Layer | 3 weeks | ⬜ Not started |
+| 0 | Pivot Documentation | 1 week | ✅ Complete |
+| 1 | Strip the UHF/LLRP Architecture | 2 weeks | ✅ Complete |
+| 2 | LF Chip Identity Layer | 3 weeks | ✅ Complete |
 | 3 | HISA Reporting Module | 5 weeks | ⬜ Not started |
 | 4 | Training Center Module | 4 weeks | ⬜ Not started |
 | 5 | Race Day Operations Module | 4 weeks | ⬜ Not started |
@@ -108,19 +108,21 @@ Remove what's no longer part of the product. Keep operations and welfare untouch
 
 Pivot from UHF Gen2 lip implants to Jockey Club LF chips with handheld scanners.
 
+> Implemented as `chip_id` (concise) rather than the verbose `jockey_club_chip_id`;
+> UI labels it "Chip ID" with subtext naming the Jockey Club LF microchip.
+
 **Tasks**
-- [ ] Replace the EPC field with `jockey_club_chip_id` (15-digit ISO 11784/11785
-      FDX-B format)
-- [ ] Build LF handheld scanner integration via USB. Supported devices: Halo
-      Scanner, Datamars iMax+ / GPR+, Microsensys readers. All speak HID keyboard
-      wedge or USB serial. Build an adapter pattern.
-- [ ] Migration to convert any existing EPC test data to the new
-      `jockey_club_chip_id` format and field
-- [ ] Build/refine check-in workflow: scan chip → resolve to horse record →
-      display status, vet flags, prior workouts, race history, HISA compliance flags
-- [ ] Horse registration uses chip number as primary identifier
-- [ ] Document supported scanner hardware in `docs/SCANNERS.md`
-- [ ] Update frontend horse profile views to use chip ID terminology
+- [x] Replace the EPC field with the LF chip ID (`chip_id`, 15-digit ISO
+      11784/11785 FDX-B) — full PK + FK rename across the data model
+- [x] LF handheld scanner integration via the **HID keyboard-wedge** path (Halo,
+      Datamars iMax+/GPR+, Microsensys); USB-serial driver deferred
+- [x] Migration `017` renames `epc`→`chip_id` / `horse_epc`→`horse_chip_id`; seed
+      regenerates horses with 15-digit chip IDs (dev verifies via fresh reseed)
+- [x] Check-in workflow: scan chip → `GET /horses/{chip_id}/summary` → identity +
+      welfare/compliance flags → record visit
+- [x] Horse registration uses chip number as primary identifier (validated)
+- [x] Document supported scanner hardware in `docs/SCANNERS.md`
+- [x] Update frontend horse profile / check-in views to "Chip ID" terminology
 
 **Acceptance**
 - `jockey_club_chip_id` is the primary identifier across the data model

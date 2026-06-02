@@ -25,12 +25,12 @@ _METERS_PER_FURLONG = 201.168
 # ------------------------------------------------------------------ #
 
 async def post_horse_mapping(
-    epc: str,
+    chip_id: str,
     horse_name: str,
     racing_api_horse_id: str,
 ) -> bool:
     """
-    POST to GateSmart to link an EPC tag to a racing API horse ID.
+    POST to GateSmart to link a chip ID to a racing API horse ID.
     Returns True on HTTP 200, False on any error.
     """
     url = os.getenv("GATESMART_MAP_URL")
@@ -40,7 +40,7 @@ async def post_horse_mapping(
 
     body = {
         "racing_api_horse_id": racing_api_horse_id,
-        "epc": epc,
+        "chip_id": chip_id,
         "horse_name": horse_name,
     }
 
@@ -50,8 +50,8 @@ async def post_horse_mapping(
 
         if resp.status_code == 200:
             logger.info(
-                "[gatesmart] Horse mapping success — epc=%s horse=%s racing_api_horse_id=%s",
-                epc, horse_name, racing_api_horse_id,
+                "[gatesmart] Horse mapping success — chip_id=%s horse=%s racing_api_horse_id=%s",
+                chip_id, horse_name, racing_api_horse_id,
             )
             return True
 
@@ -165,7 +165,7 @@ def build_race_webhook_payload(
     Pure data construction — no external calls.
 
     Each item in results must be a dict with:
-        finish_position, epc, horse_name, total_time_ms, sectionals
+        finish_position, chip_id, horse_name, total_time_ms, sectionals
 
     Each sectional must be a dict with:
         gate_name, gate_distance_furlongs, split_time_ms, speed_kmh
@@ -220,7 +220,7 @@ def build_gatesmart_results(tracker_state: dict) -> list:
 
         results.append({
             "finish_position": horse["finish_position"],
-            "epc": horse["horse_id"],
+            "chip_id": horse["horse_id"],
             "horse_name": horse["display_name"],
             "total_time_ms": total_time_ms,
             "sectionals": sectionals,

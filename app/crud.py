@@ -33,7 +33,7 @@ from app.auth import hash_password, verify_password
 
 def create_horse(
     db: Session,
-    epc: str,
+    chip_id: str,
     name: str,
     breed: Optional[str] = None,
     date_of_birth: Optional[str] = None,
@@ -41,10 +41,10 @@ def create_horse(
     implant_vet: Optional[str] = None,
     racing_api_horse_id: Optional[str] = None,
 ) -> dict:
-    if db.get(Horse, epc):
-        return {"ok": False, "error": f"Horse with EPC '{epc}' already exists"}
+    if db.get(Horse, chip_id):
+        return {"ok": False, "error": f"Horse with chip ID '{chip_id}' already exists"}
     horse = Horse(
-        epc=epc,
+        chip_id=chip_id,
         name=name,
         breed=breed,
         date_of_birth=date_of_birth,
@@ -55,11 +55,11 @@ def create_horse(
     db.add(horse)
     db.commit()
     db.refresh(horse)
-    return {"ok": True, "epc": horse.epc}
+    return {"ok": True, "chip_id": horse.chip_id}
 
 
-def get_horse(db: Session, epc: str) -> Optional[Horse]:
-    return db.get(Horse, epc)
+def get_horse(db: Session, chip_id: str) -> Optional[Horse]:
+    return db.get(Horse, chip_id)
 
 
 def list_horses(db: Session, skip: int = 0, limit: int = 100, tenant_id: Optional[str] = None) -> list[Horse]:
@@ -71,28 +71,28 @@ def list_horses(db: Session, skip: int = 0, limit: int = 100, tenant_id: Optiona
 
 def add_owner(
     db: Session,
-    epc: str,
+    chip_id: str,
     owner_name: str,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
 ) -> dict:
-    if not db.get(Horse, epc):
-        return {"ok": False, "error": f"Horse '{epc}' not found"}
-    db.add(Owner(horse_epc=epc, owner_name=owner_name, from_date=from_date, to_date=to_date))
+    if not db.get(Horse, chip_id):
+        return {"ok": False, "error": f"Horse '{chip_id}' not found"}
+    db.add(Owner(horse_chip_id=chip_id, owner_name=owner_name, from_date=from_date, to_date=to_date))
     db.commit()
     return {"ok": True}
 
 
 def add_trainer(
     db: Session,
-    epc: str,
+    chip_id: str,
     trainer_name: str,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
 ) -> dict:
-    if not db.get(Horse, epc):
-        return {"ok": False, "error": f"Horse '{epc}' not found"}
-    db.add(Trainer(horse_epc=epc, trainer_name=trainer_name, from_date=from_date, to_date=to_date))
+    if not db.get(Horse, chip_id):
+        return {"ok": False, "error": f"Horse '{chip_id}' not found"}
+    db.add(Trainer(horse_chip_id=chip_id, trainer_name=trainer_name, from_date=from_date, to_date=to_date))
     db.commit()
     return {"ok": True}
 
@@ -174,11 +174,11 @@ def list_races(db: Session, skip: int = 0, limit: int = 50, tenant_id: Optional[
 # Career & analytics
 # ------------------------------------------------------------------ #
 
-def get_career_history(db: Session, epc: str) -> list[dict]:
+def get_career_history(db: Session, chip_id: str) -> list[dict]:
     """All races this horse entered, with result if available, newest first."""
     entries = (
         db.query(RaceEntry)
-        .filter_by(horse_epc=epc)
+        .filter_by(horse_chip_id=chip_id)
         .join(Race)
         .order_by(Race.race_date.desc())
         .all()
@@ -188,7 +188,7 @@ def get_career_history(db: Session, epc: str) -> list[dict]:
         race = entry.race
         result = (
             db.query(RaceResult)
-            .filter_by(race_id=race.id, horse_epc=epc)
+            .filter_by(race_id=race.id, horse_chip_id=chip_id)
             .first()
         )
         out.append({
@@ -205,18 +205,18 @@ def get_career_history(db: Session, epc: str) -> list[dict]:
     return out
 
 
-def get_form_guide(db: Session, epc: str, n: int = 5) -> list[dict]:
+def get_form_guide(db: Session, chip_id: str, n: int = 5) -> list[dict]:
     """Last n starts with results."""
-    return get_career_history(db, epc)[:n]
+    return get_career_history(db, chip_id)[:n]
 
 
-def get_head_to_head(db: Session, epc1: str, epc2: str) -> dict:
+def get_head_to_head(db: Session, chip_id1: str, chip_id2: str) -> dict:
     """
     Head-to-head comparison: races where both horses competed.
     Returns win counts and average finish positions for shared races.
     """
-    races1 = {e.race_id for e in db.query(RaceEntry).filter_by(horse_epc=epc1).all()}
-    races2 = {e.race_id for e in db.query(RaceEntry).filter_by(horse_epc=epc2).all()}
+    races1 = {e.race_id for e in db.query(RaceEntry).filter_by(horse_chip_id=chip_id1).all()}
+    races2 = {e.race_id for e in db.query(RaceEntry).filter_by(horse_chip_id=chip_id2).all()}
     shared_race_ids = races1 & races2
 
     h1_wins = 0
@@ -226,8 +226,8 @@ def get_head_to_head(db: Session, epc1: str, epc2: str) -> dict:
     shared_races = []
 
     for race_id in sorted(shared_race_ids):
-        r1 = db.query(RaceResult).filter_by(race_id=race_id, horse_epc=epc1).first()
-        r2 = db.query(RaceResult).filter_by(race_id=race_id, horse_epc=epc2).first()
+        r1 = db.query(RaceResult).filter_by(race_id=race_id, horse_chip_id=chip_id1).first()
+        r2 = db.query(RaceResult).filter_by(race_id=race_id, horse_chip_id=chip_id2).first()
         if not r1 or not r2:
             continue
         if r1.finish_position < r2.finish_position:
@@ -247,8 +247,8 @@ def get_head_to_head(db: Session, epc1: str, epc2: str) -> dict:
         })
 
     return {
-        "epc1": epc1,
-        "epc2": epc2,
+        "chip_id1": chip_id1,
+        "chip_id2": chip_id2,
         "shared_races": len(shared_races),
         "epc1_wins": h1_wins,
         "epc2_wins": h2_wins,
@@ -265,16 +265,16 @@ def get_head_to_head(db: Session, epc1: str, epc2: str) -> dict:
 
 def add_vet_record(
     db: Session,
-    epc: str,
+    chip_id: str,
     event_date: str,
     event_type: str,
     notes: Optional[str] = None,
     vet_name: Optional[str] = None,
 ) -> dict:
-    if not db.get(Horse, epc):
-        return {"ok": False, "error": f"Horse '{epc}' not found"}
+    if not db.get(Horse, chip_id):
+        return {"ok": False, "error": f"Horse '{chip_id}' not found"}
     record = VetRecord(
-        horse_epc=epc,
+        horse_chip_id=chip_id,
         event_date=event_date,
         event_type=event_type,
         notes=notes,
@@ -286,10 +286,10 @@ def add_vet_record(
     return {"ok": True, "id": record.id}
 
 
-def get_vet_records(db: Session, epc: str) -> list[VetRecord]:
+def get_vet_records(db: Session, chip_id: str) -> list[VetRecord]:
     return (
         db.query(VetRecord)
-        .filter_by(horse_epc=epc)
+        .filter_by(horse_chip_id=chip_id)
         .order_by(VetRecord.event_date.desc())
         .all()
     )
@@ -301,15 +301,15 @@ def get_vet_records(db: Session, epc: str) -> list[VetRecord]:
 
 def add_workout(
     db: Session,
-    epc: str,
+    chip_id: str,
     workout_date: str,
     distance_m: float,
     **kwargs,
 ) -> dict:
-    if not db.get(Horse, epc):
-        return {"ok": False, "error": f"Horse '{epc}' not found"}
+    if not db.get(Horse, chip_id):
+        return {"ok": False, "error": f"Horse '{chip_id}' not found"}
     record = WorkoutRecord(
-        horse_epc=epc,
+        horse_chip_id=chip_id,
         workout_date=workout_date,
         distance_m=distance_m,
         **kwargs,
@@ -320,10 +320,10 @@ def add_workout(
     return {"ok": True, "id": record.id}
 
 
-def get_workouts(db: Session, epc: str) -> list[WorkoutRecord]:
+def get_workouts(db: Session, chip_id: str) -> list[WorkoutRecord]:
     return (
         db.query(WorkoutRecord)
-        .filter_by(horse_epc=epc)
+        .filter_by(horse_chip_id=chip_id)
         .order_by(WorkoutRecord.workout_date.desc())
         .all()
     )
@@ -335,16 +335,16 @@ def get_workouts(db: Session, epc: str) -> list[WorkoutRecord]:
 
 def add_checkin(
     db: Session,
-    epc: str,
+    chip_id: str,
     scanned_by: Optional[str] = None,
     location: Optional[str] = None,
     race_id: Optional[int] = None,
     **kwargs,
 ) -> dict:
-    if not db.get(Horse, epc):
-        return {"ok": False, "error": f"Horse '{epc}' not found"}
+    if not db.get(Horse, chip_id):
+        return {"ok": False, "error": f"Horse '{chip_id}' not found"}
     record = CheckInRecord(
-        horse_epc=epc,
+        horse_chip_id=chip_id,
         scanned_by=scanned_by,
         location=location,
         race_id=race_id,
@@ -358,10 +358,10 @@ def add_checkin(
 
 def get_checkins(
     db: Session,
-    epc: str,
+    chip_id: str,
     race_id: Optional[int] = None,
 ) -> list[CheckInRecord]:
-    q = db.query(CheckInRecord).filter_by(horse_epc=epc)
+    q = db.query(CheckInRecord).filter_by(horse_chip_id=chip_id)
     if race_id is not None:
         q = q.filter_by(race_id=race_id)
     return q.order_by(CheckInRecord.scanned_at.desc()).all()
@@ -373,15 +373,15 @@ def get_checkins(
 
 def test_barn_checkin(
     db: Session,
-    epc: str,
+    chip_id: str,
     checkin_by: Optional[str] = None,
     race_id: Optional[int] = None,
     **kwargs,
 ) -> dict:
-    if not db.get(Horse, epc):
-        return {"ok": False, "error": f"Horse '{epc}' not found"}
+    if not db.get(Horse, chip_id):
+        return {"ok": False, "error": f"Horse '{chip_id}' not found"}
     record = TestBarnRecord(
-        horse_epc=epc,
+        horse_chip_id=chip_id,
         checkin_by=checkin_by,
         race_id=race_id,
         **kwargs,
@@ -410,10 +410,10 @@ def test_barn_checkout(
     return {"ok": True, "id": record.id}
 
 
-def get_test_barn_records(db: Session, epc: str) -> list[TestBarnRecord]:
+def get_test_barn_records(db: Session, chip_id: str) -> list[TestBarnRecord]:
     return (
         db.query(TestBarnRecord)
-        .filter_by(horse_epc=epc)
+        .filter_by(horse_chip_id=chip_id)
         .order_by(TestBarnRecord.checkin_at.desc())
         .all()
     )
@@ -668,7 +668,7 @@ from datetime import datetime as _dt
 
 def add_biosensor_reading(
     db: Session,
-    horse_epc: str,
+    horse_chip_id: str,
     recorded_at: Optional[_dt] = None,
     race_id: Optional[int] = None,
     heart_rate_bpm: Optional[int] = None,
@@ -676,10 +676,10 @@ def add_biosensor_reading(
     stride_hz: Optional[float] = None,
     source: str = "wearable",
 ) -> dict:
-    if not db.get(Horse, horse_epc):
-        return {"ok": False, "error": f"Horse '{horse_epc}' not found"}
+    if not db.get(Horse, horse_chip_id):
+        return {"ok": False, "error": f"Horse '{horse_chip_id}' not found"}
     reading = BiosensorReading(
-        horse_epc=horse_epc,
+        horse_chip_id=horse_chip_id,
         race_id=race_id,
         recorded_at=recorded_at or datetime.now(timezone.utc),
         heart_rate_bpm=heart_rate_bpm,
@@ -694,11 +694,11 @@ def add_biosensor_reading(
 
 
 def get_biosensor_readings(
-    db: Session, horse_epc: str, limit: int = 200
+    db: Session, horse_chip_id: str, limit: int = 200
 ) -> list[BiosensorReading]:
     return (
         db.query(BiosensorReading)
-        .filter_by(horse_epc=horse_epc)
+        .filter_by(horse_chip_id=horse_chip_id)
         .order_by(BiosensorReading.recorded_at.desc())
         .limit(limit)
         .all()
@@ -711,7 +711,7 @@ def get_race_biosensor_readings(
     return (
         db.query(BiosensorReading)
         .filter_by(race_id=race_id)
-        .order_by(BiosensorReading.horse_epc, BiosensorReading.recorded_at)
+        .order_by(BiosensorReading.horse_chip_id, BiosensorReading.recorded_at)
         .all()
     )
 
@@ -725,22 +725,22 @@ TEMP_ALERT_HIGH = 39.0   # red
 TEMP_ALERT_LOW = 37.0    # red
 
 
-def get_temperature_history(db: Session, horse_epc: str, limit: int = 50) -> list[CheckInRecord]:
+def get_temperature_history(db: Session, horse_chip_id: str, limit: int = 50) -> list[CheckInRecord]:
     return (
         db.query(CheckInRecord)
-        .filter(CheckInRecord.horse_epc == horse_epc, CheckInRecord.temperature_c.isnot(None))
+        .filter(CheckInRecord.horse_chip_id == horse_chip_id, CheckInRecord.temperature_c.isnot(None))
         .order_by(CheckInRecord.scanned_at.desc())
         .limit(limit)
         .all()
     )
 
 
-def get_temperature_alerts(db: Session, horse_epc: str) -> list[CheckInRecord]:
+def get_temperature_alerts(db: Session, horse_chip_id: str) -> list[CheckInRecord]:
     from sqlalchemy import or_
     return (
         db.query(CheckInRecord)
         .filter(
-            CheckInRecord.horse_epc == horse_epc,
+            CheckInRecord.horse_chip_id == horse_chip_id,
             CheckInRecord.temperature_c.isnot(None),
             or_(
                 CheckInRecord.temperature_c >= TEMP_ALERT_HIGH,

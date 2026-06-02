@@ -74,10 +74,10 @@ def _create_venue(c, venue_id="TESTOVAL"):
     return venue_id
 
 
-def _create_horse(db, epc="EPC-TEST-001", name="Test Horse"):
-    db.merge(Horse(epc=epc, name=name))
+def _create_horse(db, chip_id="985112000100009", name="Test Horse"):
+    db.merge(Horse(chip_id=chip_id, name=name))
     db.commit()
-    return epc
+    return chip_id
 
 
 # ─── Item 2: Biosensor ────────────────────────────────────────────────────────
@@ -85,9 +85,9 @@ def _create_horse(db, epc="EPC-TEST-001", name="Test Horse"):
 class TestBiosensor:
     def test_add_biosensor_reading(self, test_client):
         c, db = test_client
-        epc = _create_horse(db)
+        chip_id = _create_horse(db)
 
-        r = c.post(f"/horses/{epc}/biosensor", json={
+        r = c.post(f"/horses/{chip_id}/biosensor", json={
             "heart_rate_bpm": 140,
             "temperature_c": 38.1,
             "stride_hz": 2.4,
@@ -98,11 +98,11 @@ class TestBiosensor:
 
     def test_get_biosensor_readings(self, test_client):
         c, db = test_client
-        epc = _create_horse(db)
-        c.post(f"/horses/{epc}/biosensor", json={"heart_rate_bpm": 145})
-        c.post(f"/horses/{epc}/biosensor", json={"heart_rate_bpm": 148})
+        chip_id = _create_horse(db)
+        c.post(f"/horses/{chip_id}/biosensor", json={"heart_rate_bpm": 145})
+        c.post(f"/horses/{chip_id}/biosensor", json={"heart_rate_bpm": 148})
 
-        r = c.get(f"/horses/{epc}/biosensor")
+        r = c.get(f"/horses/{chip_id}/biosensor")
         assert r.status_code == 200
         assert len(r.json()["readings"]) == 2
 
@@ -113,13 +113,13 @@ class TestBiosensor:
 
     def test_biosensor_validates_hr_range(self, test_client):
         c, db = test_client
-        epc = _create_horse(db)
-        r = c.post(f"/horses/{epc}/biosensor", json={"heart_rate_bpm": 500})
+        chip_id = _create_horse(db)
+        r = c.post(f"/horses/{chip_id}/biosensor", json={"heart_rate_bpm": 500})
         assert r.status_code == 422
 
     def test_bulk_biosensor(self, test_client):
         c, db = test_client
-        epc = _create_horse(db)
+        chip_id = _create_horse(db)
         # Create a race
         _create_venue(c)
         c.post("/races", json={
@@ -133,8 +133,8 @@ class TestBiosensor:
 
         bulk = {
             "readings": [
-                {"horse_epc": epc, "heart_rate_bpm": 142, "temperature_c": 38.2},
-                {"horse_epc": epc, "heart_rate_bpm": 147, "stride_hz": 2.3},
+                {"horse_chip_id": chip_id, "heart_rate_bpm": 142, "temperature_c": 38.2},
+                {"horse_chip_id": chip_id, "heart_rate_bpm": 147, "stride_hz": 2.3},
             ]
         }
         r = c.post(f"/races/{race_id}/biosensor/bulk", json=bulk)
@@ -147,9 +147,9 @@ class TestBiosensor:
 class TestTemperature:
     def test_checkin_with_temperature(self, test_client):
         c, db = test_client
-        epc = _create_horse(db)
+        chip_id = _create_horse(db)
 
-        r = c.post(f"/horses/{epc}/checkins", json={
+        r = c.post(f"/horses/{chip_id}/checkins", json={
             "scanned_by": "Test Official",
             "location": "Paddock",
             "temperature_c": 38.3,
@@ -159,10 +159,10 @@ class TestTemperature:
 
     def test_checkin_temperature_returned_in_list(self, test_client):
         c, db = test_client
-        epc = _create_horse(db)
-        c.post(f"/horses/{epc}/checkins", json={"temperature_c": 37.8})
+        chip_id = _create_horse(db)
+        c.post(f"/horses/{chip_id}/checkins", json={"temperature_c": 37.8})
 
-        r = c.get(f"/horses/{epc}/checkins")
+        r = c.get(f"/horses/{chip_id}/checkins")
         assert r.status_code == 200
         checkins = r.json()["checkins"]
         assert len(checkins) == 1
@@ -170,11 +170,11 @@ class TestTemperature:
 
     def test_temperature_history_endpoint(self, test_client):
         c, db = test_client
-        epc = _create_horse(db)
-        c.post(f"/horses/{epc}/checkins", json={"temperature_c": 38.1})
-        c.post(f"/horses/{epc}/checkins", json={})  # no temp — should not appear
+        chip_id = _create_horse(db)
+        c.post(f"/horses/{chip_id}/checkins", json={"temperature_c": 38.1})
+        c.post(f"/horses/{chip_id}/checkins", json={})  # no temp — should not appear
 
-        r = c.get(f"/horses/{epc}/temperature-history")
+        r = c.get(f"/horses/{chip_id}/temperature-history")
         assert r.status_code == 200
         readings = r.json()["readings"]
         assert len(readings) == 1
@@ -182,12 +182,12 @@ class TestTemperature:
 
     def test_temperature_alerts_endpoint(self, test_client):
         c, db = test_client
-        epc = _create_horse(db)
-        c.post(f"/horses/{epc}/checkins", json={"temperature_c": 37.8})  # normal
-        c.post(f"/horses/{epc}/checkins", json={"temperature_c": 39.2})  # red alert
-        c.post(f"/horses/{epc}/checkins", json={"temperature_c": 38.6})  # amber
+        chip_id = _create_horse(db)
+        c.post(f"/horses/{chip_id}/checkins", json={"temperature_c": 37.8})  # normal
+        c.post(f"/horses/{chip_id}/checkins", json={"temperature_c": 39.2})  # red alert
+        c.post(f"/horses/{chip_id}/checkins", json={"temperature_c": 38.6})  # amber
 
-        r = c.get(f"/horses/{epc}/temperature-alerts")
+        r = c.get(f"/horses/{chip_id}/temperature-alerts")
         assert r.status_code == 200
         body = r.json()
         # Alerts at >= 39.0 or <= 37.0. 37.8 normal, 39.2 alert, 38.6 amber (not alert).
@@ -195,11 +195,11 @@ class TestTemperature:
 
     def test_temperature_alerts_severity(self, test_client):
         c, db = test_client
-        epc = _create_horse(db)
-        c.post(f"/horses/{epc}/checkins", json={"temperature_c": 39.5})  # red
-        c.post(f"/horses/{epc}/checkins", json={"temperature_c": 36.5})  # red (low)
+        chip_id = _create_horse(db)
+        c.post(f"/horses/{chip_id}/checkins", json={"temperature_c": 39.5})  # red
+        c.post(f"/horses/{chip_id}/checkins", json={"temperature_c": 36.5})  # red (low)
 
-        r = c.get(f"/horses/{epc}/temperature-alerts")
+        r = c.get(f"/horses/{chip_id}/temperature-alerts")
         body = r.json()
         assert body["alert_count"] == 2
         severities = {a["severity"] for a in body["alerts"]}
@@ -212,8 +212,8 @@ class TestTemperature:
 
     def test_checkin_without_temperature_is_null(self, test_client):
         c, db = test_client
-        epc = _create_horse(db)
-        c.post(f"/horses/{epc}/checkins", json={"scanned_by": "Official"})
+        chip_id = _create_horse(db)
+        c.post(f"/horses/{chip_id}/checkins", json={"scanned_by": "Official"})
 
-        r = c.get(f"/horses/{epc}/checkins")
+        r = c.get(f"/horses/{chip_id}/checkins")
         assert r.json()["checkins"][0]["temperature_c"] is None

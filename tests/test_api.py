@@ -468,7 +468,7 @@ def test_build_race_payload_structure():
         "elapsed_str": "1:30.000",
         "horses": [
             {
-                "horse_id": "EPC001",
+                "horse_id": "985112000100001",
                 "display_name": "Thunderstrike",
                 "saddle_cloth": "1",
                 "finish_position": 1,
@@ -480,7 +480,7 @@ def test_build_race_payload_structure():
                 "sectionals": [{"segment": "Start → Finish", "distance_m": 800, "elapsed_ms": 88000, "speed_kmh": 32.7}],
             },
             {
-                "horse_id": "EPC002",
+                "horse_id": "985112000100002",
                 "display_name": "Bolt",
                 "saddle_cloth": "2",
                 "finish_position": 2,
@@ -546,15 +546,15 @@ def admin_api_key():
 @pytest.fixture()
 def test_horse_for_api_key():
     """Create a disposable horse for API key endpoint tests; delete after."""
-    epc = "APIKEYTEST0001"
-    client.post("/horses", json={"epc": epc, "name": "Api Key Horse"})
-    yield epc
+    chip_id = "985112000800001"
+    client.post("/horses", json={"chip_id": chip_id, "name": "Api Key Horse"})
+    yield chip_id
     # best-effort cleanup via direct DB delete
     from app.database import SessionLocal
     from app.models import Horse
     db = SessionLocal()
     try:
-        h = db.get(Horse, epc)
+        h = db.get(Horse, chip_id)
         if h:
             db.delete(h)
             db.commit()
@@ -615,25 +615,25 @@ def test_api_key_create_forbidden_for_non_admin():
 
 
 def test_api_key_grants_access_to_protected_endpoint(admin_api_key, test_horse_for_api_key):
-    """A valid API key allows access to GET /horses/{epc}."""
+    """A valid API key allows access to GET /horses/{chip_id}."""
     raw_key = admin_api_key["key"]
     r = client.get(
         f"/horses/{test_horse_for_api_key}",
         headers={"X-API-Key": raw_key},
     )
     assert r.status_code == 200
-    assert r.json()["epc"] == test_horse_for_api_key
+    assert r.json()["chip_id"] == test_horse_for_api_key
 
 
 def test_api_key_grants_access_to_career_endpoint(admin_api_key, test_horse_for_api_key):
-    """A valid API key allows access to GET /horses/{epc}/career."""
+    """A valid API key allows access to GET /horses/{chip_id}/career."""
     raw_key = admin_api_key["key"]
     r = client.get(
         f"/horses/{test_horse_for_api_key}/career",
         headers={"X-API-Key": raw_key},
     )
     assert r.status_code == 200
-    assert r.json()["epc"] == test_horse_for_api_key
+    assert r.json()["chip_id"] == test_horse_for_api_key
 
 
 def test_api_key_grants_access_to_race_results(admin_api_key):
@@ -676,7 +676,7 @@ def test_inactive_api_key_returns_401(admin_api_key, test_horse_for_api_key):
 
 
 def test_no_auth_on_protected_endpoint_returns_401(test_horse_for_api_key):
-    """GET /horses/{epc} without any credential returns 401."""
+    """GET /horses/{chip_id} without any credential returns 401."""
     r = client.get(f"/horses/{test_horse_for_api_key}")
     assert r.status_code == 401
 
@@ -715,7 +715,7 @@ def test_build_race_webhook_payload_shape():
     results = [
         {
             "finish_position": 1,
-            "epc": "E2004700000000000000001A",
+            "chip_id": "985112000100003",
             "horse_name": "Test Horse",
             "total_time_ms": 98400,
             "sectionals": sectionals,
@@ -739,7 +739,7 @@ def test_build_race_webhook_payload_shape():
 
     r = payload["results"][0]
     assert r["finish_position"] == 1
-    assert r["epc"] == "E2004700000000000000001A"
+    assert r["chip_id"] == "985112000100003"
     assert r["horse_name"] == "Test Horse"
     assert r["total_time_ms"] == 98400
     assert len(r["sectionals"]) == 1
@@ -756,7 +756,7 @@ def test_build_race_webhook_payload_shape():
 
 
 def test_map_horse_to_gatesmart_returns_200_when_mapping_succeeds():
-    """POST /admin/horses/{epc}/map-to-gatesmart returns 200 when GateSmart accepts."""
+    """POST /admin/horses/{chip_id}/map-to-gatesmart returns 200 when GateSmart accepts."""
     from app import crud
 
     mock_horse = MagicMock()
@@ -765,19 +765,19 @@ def test_map_horse_to_gatesmart_returns_200_when_mapping_succeeds():
     with patch.object(crud, "get_horse", return_value=mock_horse), \
          patch.object(gatesmart, "post_horse_mapping", new=AsyncMock(return_value=True)):
         r = client.post(
-            "/admin/horses/E2004700000000000000001A/map-to-gatesmart",
+            "/admin/horses/985112000100003/map-to-gatesmart",
             json={"racing_api_horse_id": "test-horse-001"},
         )
 
     assert r.status_code == 200
     body = r.json()
     assert body["mapped"] is True
-    assert body["epc"] == "E2004700000000000000001A"
+    assert body["chip_id"] == "985112000100003"
     assert body["racing_api_horse_id"] == "test-horse-001"
 
 
 def test_map_horse_to_gatesmart_returns_404_for_unknown_epc():
-    """POST /admin/horses/{epc}/map-to-gatesmart returns 404 when horse not in DB."""
+    """POST /admin/horses/{chip_id}/map-to-gatesmart returns 404 when horse not in DB."""
     from app import crud
 
     with patch.object(crud, "get_horse", return_value=None):
@@ -1108,22 +1108,22 @@ def _admin_auth_headers():
 
 def test_create_horse_with_racing_api_id_stores_it():
     """POST /horses with racing_api_horse_id stores and returns it via GET."""
-    epc = "EPCMAP001AABBCCDDEEFF0011"
+    chip_id = "985112000100004"
     client.post("/horses", json={
-        "epc": epc,
+        "chip_id": chip_id,
         "name": "Mapper Horse",
         "racing_api_horse_id": "GSMART-42",
     })
-    r = client.get(f"/horses/{epc}", headers=_admin_auth_headers())
+    r = client.get(f"/horses/{chip_id}", headers=_admin_auth_headers())
     assert r.status_code == 200
     assert r.json()["racing_api_horse_id"] == "GSMART-42"
 
 
 def test_create_horse_without_racing_api_id_is_null():
     """POST /horses without racing_api_horse_id stores null."""
-    epc = "EPCMAP002AABBCCDDEEFF0022"
-    client.post("/horses", json={"epc": epc, "name": "Plain Horse"})
-    r = client.get(f"/horses/{epc}", headers=_admin_auth_headers())
+    chip_id = "985112000100005"
+    client.post("/horses", json={"chip_id": chip_id, "name": "Plain Horse"})
+    r = client.get(f"/horses/{chip_id}", headers=_admin_auth_headers())
     assert r.status_code == 200
     assert r.json()["racing_api_horse_id"] is None
 
@@ -1134,13 +1134,13 @@ def test_create_horse_without_racing_api_id_is_null():
 
 def test_audit_log_created_on_create_horse():
     """POST /horses writes an audit log entry retrievable via GET /admin/audit-log."""
-    epc = "EPCAUDIT001AABBCCDDEEFF01"
-    client.post("/horses", json={"epc": epc, "name": "Audit Horse"})
+    chip_id = "985112000100006"
+    client.post("/horses", json={"chip_id": chip_id, "name": "Audit Horse"})
 
-    r = client.get("/admin/audit-log", params={"target_type": "horse", "target_id": epc})
+    r = client.get("/admin/audit-log", params={"target_type": "horse", "target_id": chip_id})
     assert r.status_code == 200
     entries = r.json()
-    assert any(e["action"] == "create" and e["target_id"] == epc for e in entries)
+    assert any(e["action"] == "create" and e["target_id"] == chip_id for e in entries)
 
 
 def test_audit_log_created_on_create_race():
@@ -1225,27 +1225,70 @@ def test_api_key_rate_limit_stored_and_returned():
 
 def test_api_key_within_rate_limit_is_allowed():
     """Requests within the rate limit are accepted (HTTP 200)."""
-    epc = "EPCRATELIMIT001AABBCCDD01"
-    client.post("/horses", json={"epc": epc, "name": "Rate Horse"})
+    chip_id = "985112000100007"
+    client.post("/horses", json={"chip_id": chip_id, "name": "Rate Horse"})
 
     raw_key = _create_rate_limited_key("rate-allow-key", 5)
     _clear_rate_window(raw_key)
 
-    r = client.get(f"/horses/{epc}", headers={"X-API-Key": raw_key})
+    r = client.get(f"/horses/{chip_id}", headers={"X-API-Key": raw_key})
     assert r.status_code == 200
 
 
 def test_api_key_exceeding_rate_limit_returns_429():
     """Requests exceeding rate_limit_per_minute return HTTP 429."""
-    epc = "EPCRATELIMIT002AABBCCDD02"
-    client.post("/horses", json={"epc": epc, "name": "Rate Horse 2"})
+    chip_id = "985112000100008"
+    client.post("/horses", json={"chip_id": chip_id, "name": "Rate Horse 2"})
 
     raw_key = _create_rate_limited_key("rate-block-key", 2)
     _clear_rate_window(raw_key)
 
     # Exhaust the limit
-    client.get(f"/horses/{epc}", headers={"X-API-Key": raw_key})
-    client.get(f"/horses/{epc}", headers={"X-API-Key": raw_key})
+    client.get(f"/horses/{chip_id}", headers={"X-API-Key": raw_key})
+    client.get(f"/horses/{chip_id}", headers={"X-API-Key": raw_key})
     # This should be blocked
-    r = client.get(f"/horses/{epc}", headers={"X-API-Key": raw_key})
+    r = client.get(f"/horses/{chip_id}", headers={"X-API-Key": raw_key})
     assert r.status_code == 429
+
+# ------------------------------------------------------------------ #
+# Phase 2 — LF chip identity (chip_id validation + scan summary)
+# ------------------------------------------------------------------ #
+
+def test_create_horse_accepts_15_digit_chip_id():
+    r = client.post("/horses", json={"chip_id": "985112000900001", "name": "Chip Horse"})
+    assert r.status_code == 200
+    assert r.json()["chip_id"] == "985112000900001"
+
+
+def test_create_horse_rejects_non_15_digit_chip_id():
+    # hex EPC-style id is no longer valid
+    r = client.post("/horses", json={"chip_id": "E200681100000001AABB0001", "name": "Bad"})
+    assert r.status_code == 400
+    # too short
+    r2 = client.post("/horses", json={"chip_id": "98511200090", "name": "Short"})
+    assert r2.status_code == 400
+    # non-numeric
+    r3 = client.post("/horses", json={"chip_id": "98511200090000X", "name": "Alpha"})
+    assert r3.status_code == 400
+
+
+def test_horse_summary_returns_identity_and_flags():
+    chip = "985112000900050"
+    client.post("/horses", json={"chip_id": chip, "name": "Summary Horse", "breed": "Thoroughbred"})
+    client.post(f"/horses/{chip}/checkins", json={"temperature_c": 39.4, "location": "Paddock"})
+
+    r = client.get(f"/horses/{chip}/summary")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["chip_id"] == chip
+    assert body["name"] == "Summary Horse"
+    assert body["latest_temperature_c"] == 39.4
+    assert body["temperature_alert"] == "red"
+    assert "workout_count" in body
+    assert "open_test_barn" in body
+    assert "vet_record_count" in body
+
+
+def test_horse_summary_404_for_unknown_chip():
+    r = client.get("/horses/985112000999999/summary")
+    assert r.status_code == 404

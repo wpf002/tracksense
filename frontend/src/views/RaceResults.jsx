@@ -22,7 +22,7 @@ export default function RaceResults() {
 
   // saddle cloth lookup from entries
   const clothByEpc = {}
-  for (const e of race?.entries ?? []) clothByEpc[e.horse_epc] = e.saddle_cloth
+  for (const e of race?.entries ?? []) clothByEpc[e.horse_chip_id] = e.saddle_cloth
   const results = [...(race?.results ?? [])].sort((a, b) => a.finish_position - b.finish_position)
 
   const columns = [
@@ -36,12 +36,12 @@ export default function RaceResults() {
       key: 'saddle_cloth',
       label: '#',
       className: 'w-12',
-      render: (row) => <span className="font-timing font-bold">{clothByEpc[row.horse_epc] ?? '—'}</span>,
+      render: (row) => <span className="font-timing font-bold">{clothByEpc[row.horse_chip_id] ?? '—'}</span>,
     },
     {
-      key: 'horse_epc',
+      key: 'horse_chip_id',
       label: 'Horse (chip)',
-      render: (row) => <span className="font-timing text-xs text-text-muted">{row.horse_epc}</span>,
+      render: (row) => <span className="font-timing text-xs text-text-muted">{row.horse_chip_id}</span>,
     },
     {
       key: 'elapsed_ms',

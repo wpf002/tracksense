@@ -9,6 +9,7 @@ from typing import Optional
 from app import gatesmart
 from app.database import get_db
 from app import crud
+from app.identity import normalize_chip_id, is_valid_chip_id
 from app.auth import create_access_token, decode_token
 from app.models import User
 from app.api_keys_router import require_jwt_or_api_key
@@ -300,20 +301,20 @@ class MapToGatesmartRequest(BaseModel):
     racing_api_horse_id: str
 
 
-@router.post("/admin/horses/{epc}/map-to-gatesmart")
+@router.post("/admin/horses/{chip_id}/map-to-gatesmart")
 async def map_horse_to_gatesmart(
-    epc: str,
+    chip_id: str,
     req: MapToGatesmartRequest,
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    epc = epc.strip().upper()
-    horse = crud.get_horse(db, epc)
+    chip_id = chip_id.strip().upper()
+    horse = crud.get_horse(db, chip_id)
     if not horse:
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    ok = await gatesmart.post_horse_mapping(epc, horse.name, req.racing_api_horse_id)
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    ok = await gatesmart.post_horse_mapping(chip_id, horse.name, req.racing_api_horse_id)
     if ok:
-        return {"mapped": True, "epc": epc, "racing_api_horse_id": req.racing_api_horse_id}
+        return {"mapped": True, "chip_id": chip_id, "racing_api_horse_id": req.racing_api_horse_id}
     raise HTTPException(502, {"error": "GateSmart mapping failed"})
 
 
@@ -536,7 +537,7 @@ def delete_venue(
 # ------------------------------------------------------------------ #
 
 class CreateHorseRequest(BaseModel):
-    epc: str = Field(..., description="UHF chip EPC — permanent identity key")
+    chip_id: str = Field(..., description="Jockey Club LF microchip ID — 15-digit ISO 11784/11785 FDX-B")
     name: str
     breed: Optional[str] = None
     date_of_birth: Optional[str] = Field(None, description="ISO date e.g. '2018-09-14'")
@@ -617,9 +618,12 @@ class TestBarnCheckOutRequest(BaseModel):
 
 @router.post("/horses")
 def create_horse(req: CreateHorseRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    chip_id = normalize_chip_id(req.chip_id)
+    if not is_valid_chip_id(chip_id):
+        raise HTTPException(400, "chip_id must be a 15-digit Jockey Club LF microchip ID (ISO 11784/11785)")
     result = crud.create_horse(
         db,
-        epc=req.epc.strip().upper(),
+        chip_id=chip_id,
         name=req.name,
         breed=req.breed,
         date_of_birth=req.date_of_birth,
@@ -629,7 +633,7 @@ def create_horse(req: CreateHorseRequest, db: Session = Depends(get_db), current
     )
     if not result["ok"]:
         raise HTTPException(409, result["error"])
-    crud.write_audit_log(db, current_user, "create", "horse", req.epc.strip().upper(), {"name": req.name})
+    crud.write_audit_log(db, current_user, "create", "horse", chip_id, {"name": req.name})
     return result
 
 
@@ -644,7 +648,7 @@ def list_horses(
     return {
         "horses": [
             {
-                "epc": h.epc,
+                "chip_id": h.chip_id,
                 "name": h.name,
                 "breed": h.breed,
                 "date_of_birth": h.date_of_birth,
@@ -656,26 +660,26 @@ def list_horses(
     }
 
 
-# Note: /horses/compare/{epc1}/vs/{epc2} is defined before /horses/{epc}
-# to prevent FastAPI from matching "compare" as an EPC value.
-@router.get("/horses/compare/{epc1}/vs/{epc2}")
-def compare_horses(epc1: str, epc2: str, db: Session = Depends(get_db)):
-    epc1 = epc1.strip().upper()
-    epc2 = epc2.strip().upper()
-    if not crud.get_horse(db, epc1):
-        raise HTTPException(404, f"Horse '{epc1}' not found")
-    if not crud.get_horse(db, epc2):
-        raise HTTPException(404, f"Horse '{epc2}' not found")
-    return crud.get_head_to_head(db, epc1, epc2)
+# Note: /horses/compare/{chip_id1}/vs/{chip_id2} is defined before /horses/{chip_id}
+# to prevent FastAPI from matching "compare" as a chip_id value.
+@router.get("/horses/compare/{chip_id1}/vs/{chip_id2}")
+def compare_horses(chip_id1: str, chip_id2: str, db: Session = Depends(get_db)):
+    chip_id1 = chip_id1.strip().upper()
+    chip_id2 = chip_id2.strip().upper()
+    if not crud.get_horse(db, chip_id1):
+        raise HTTPException(404, f"Horse '{chip_id1}' not found")
+    if not crud.get_horse(db, chip_id2):
+        raise HTTPException(404, f"Horse '{chip_id2}' not found")
+    return crud.get_head_to_head(db, chip_id1, chip_id2)
 
 
-@router.get("/horses/{epc}")
-def get_horse(epc: str, db: Session = Depends(get_db), _auth=Depends(require_jwt_or_api_key)):
-    horse = crud.get_horse(db, epc.strip().upper())
+@router.get("/horses/{chip_id}")
+def get_horse(chip_id: str, db: Session = Depends(get_db), _auth=Depends(require_jwt_or_api_key)):
+    horse = crud.get_horse(db, chip_id.strip().upper())
     if not horse:
-        raise HTTPException(404, f"Horse '{epc}' not found")
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
     return {
-        "epc": horse.epc,
+        "chip_id": horse.chip_id,
         "name": horse.name,
         "breed": horse.breed,
         "date_of_birth": horse.date_of_birth,
@@ -694,30 +698,75 @@ def get_horse(epc: str, db: Session = Depends(get_db), _auth=Depends(require_jwt
     }
 
 
-@router.get("/horses/{epc}/career")
-def horse_career(epc: str, db: Session = Depends(get_db), _auth=Depends(require_jwt_or_api_key)):
-    epc = epc.strip().upper()
-    if not crud.get_horse(db, epc):
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    return {"epc": epc, "career": crud.get_career_history(db, epc)}
+@router.get("/horses/{chip_id}/summary")
+def horse_summary(chip_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """
+    One-call scan lookup for the check-in screen: identity plus welfare/compliance
+    flags, so an official scanning a chip sees who the horse is and anything that
+    needs attention before recording the visit.
+    """
+    chip_id = chip_id.strip().upper()
+    horse = crud.get_horse(db, chip_id)
+    if not horse:
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
 
+    current_owner = next((o.owner_name for o in horse.owners if not o.to_date), None)
+    current_trainer = next((t.trainer_name for t in horse.trainers if not t.to_date), None)
 
-@router.get("/horses/{epc}/form")
-def horse_form(epc: str, n: int = 5, db: Session = Depends(get_db)):
-    epc = epc.strip().upper()
-    if not crud.get_horse(db, epc):
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    return {"epc": epc, "form": crud.get_form_guide(db, epc, n=n)}
+    temps = crud.get_temperature_history(db, chip_id, limit=1)
+    latest_temp = temps[0].temperature_c if temps else None
+    temp_alert = None
+    if latest_temp is not None:
+        if latest_temp >= 39.0 or latest_temp <= 37.0:
+            temp_alert = "red"
+        elif latest_temp >= 38.5:
+            temp_alert = "amber"
+        else:
+            temp_alert = "normal"
 
+    workouts = crud.get_workouts(db, chip_id)
+    test_barn = crud.get_test_barn_records(db, chip_id)
+    vet_records = crud.get_vet_records(db, chip_id)
 
-@router.get("/horses/{epc}/vet")
-def get_vet_records(epc: str, db: Session = Depends(get_db)):
-    epc = epc.strip().upper()
-    if not crud.get_horse(db, epc):
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    records = crud.get_vet_records(db, epc)
     return {
-        "epc": epc,
+        "chip_id": horse.chip_id,
+        "name": horse.name,
+        "breed": horse.breed,
+        "current_owner": current_owner,
+        "current_trainer": current_trainer,
+        "latest_temperature_c": latest_temp,
+        "temperature_alert": temp_alert,
+        "workout_count": len(workouts),
+        "last_workout_date": workouts[0].workout_date if workouts else None,
+        "open_test_barn": any(r.checkout_at is None for r in test_barn),
+        "vet_record_count": len(vet_records),
+    }
+
+
+@router.get("/horses/{chip_id}/career")
+def horse_career(chip_id: str, db: Session = Depends(get_db), _auth=Depends(require_jwt_or_api_key)):
+    chip_id = chip_id.strip().upper()
+    if not crud.get_horse(db, chip_id):
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    return {"chip_id": chip_id, "career": crud.get_career_history(db, chip_id)}
+
+
+@router.get("/horses/{chip_id}/form")
+def horse_form(chip_id: str, n: int = 5, db: Session = Depends(get_db)):
+    chip_id = chip_id.strip().upper()
+    if not crud.get_horse(db, chip_id):
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    return {"chip_id": chip_id, "form": crud.get_form_guide(db, chip_id, n=n)}
+
+
+@router.get("/horses/{chip_id}/vet")
+def get_vet_records(chip_id: str, db: Session = Depends(get_db)):
+    chip_id = chip_id.strip().upper()
+    if not crud.get_horse(db, chip_id):
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    records = crud.get_vet_records(db, chip_id)
+    return {
+        "chip_id": chip_id,
         "vet_records": [
             {
                 "id": r.id,
@@ -731,11 +780,11 @@ def get_vet_records(epc: str, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/horses/{epc}/vet")
-def add_vet_record(epc: str, req: AddVetRecordRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+@router.post("/horses/{chip_id}/vet")
+def add_vet_record(chip_id: str, req: AddVetRecordRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     result = crud.add_vet_record(
         db,
-        epc=epc.strip().upper(),
+        chip_id=chip_id.strip().upper(),
         event_date=req.event_date,
         event_type=req.event_type,
         notes=req.notes,
@@ -743,7 +792,7 @@ def add_vet_record(epc: str, req: AddVetRecordRequest, db: Session = Depends(get
     )
     if not result["ok"]:
         raise HTTPException(404, result["error"])
-    crud.write_audit_log(db, current_user, "vet_record", "horse", epc.strip().upper(),
+    crud.write_audit_log(db, current_user, "vet_record", "horse", chip_id.strip().upper(),
                          {"event_type": req.event_type, "event_date": req.event_date})
     return result
 
@@ -808,12 +857,12 @@ def get_race(race_id: int, db: Session = Depends(get_db)):
         "conditions": race.conditions,
         "status": race.status,
         "entries": [
-            {"horse_epc": e.horse_epc, "saddle_cloth": e.saddle_cloth}
+            {"horse_chip_id": e.horse_chip_id, "saddle_cloth": e.saddle_cloth}
             for e in race.entries
         ],
         "results": [
             {
-                "horse_epc": r.horse_epc,
+                "horse_chip_id": r.horse_chip_id,
                 "finish_position": r.finish_position,
                 "elapsed_ms": r.elapsed_ms,
             }
@@ -832,7 +881,7 @@ def get_race_results(race_id: int, db: Session = Depends(get_db), _auth=Depends(
         "status": race.status,
         "results": [
             {
-                "horse_epc": r.horse_epc,
+                "horse_chip_id": r.horse_chip_id,
                 "finish_position": r.finish_position,
                 "elapsed_ms": r.elapsed_ms,
             }
@@ -845,11 +894,11 @@ def get_race_results(race_id: int, db: Session = Depends(get_db), _auth=Depends(
 # Phase 5A — Welfare & operational workflows
 # ------------------------------------------------------------------ #
 
-@router.post("/horses/{epc}/workouts")
-def add_workout(epc: str, req: AddWorkoutRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+@router.post("/horses/{chip_id}/workouts")
+def add_workout(chip_id: str, req: AddWorkoutRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     result = crud.add_workout(
         db,
-        epc=epc.strip().upper(),
+        chip_id=chip_id.strip().upper(),
         workout_date=req.workout_date,
         distance_m=req.distance_m,
         surface=req.surface,
@@ -867,14 +916,14 @@ def add_workout(epc: str, req: AddWorkoutRequest, db: Session = Depends(get_db),
     return result
 
 
-@router.get("/horses/{epc}/workouts")
-def get_workouts(epc: str, db: Session = Depends(get_db)):
-    epc = epc.strip().upper()
-    if not crud.get_horse(db, epc):
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    records = crud.get_workouts(db, epc)
+@router.get("/horses/{chip_id}/workouts")
+def get_workouts(chip_id: str, db: Session = Depends(get_db)):
+    chip_id = chip_id.strip().upper()
+    if not crud.get_horse(db, chip_id):
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    records = crud.get_workouts(db, chip_id)
     return {
-        "epc": epc,
+        "chip_id": chip_id,
         "workouts": [
             {
                 "id": r.id,
@@ -896,11 +945,11 @@ def get_workouts(epc: str, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/horses/{epc}/checkins")
-def add_checkin(epc: str, req: CheckInRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+@router.post("/horses/{chip_id}/checkins")
+def add_checkin(chip_id: str, req: CheckInRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     result = crud.add_checkin(
         db,
-        epc=epc.strip().upper(),
+        chip_id=chip_id.strip().upper(),
         scanned_by=req.scanned_by,
         location=req.location,
         race_id=req.race_id,
@@ -912,14 +961,14 @@ def add_checkin(epc: str, req: CheckInRequest, db: Session = Depends(get_db), _:
     return result
 
 
-@router.get("/horses/{epc}/checkins")
-def get_checkins(epc: str, race_id: Optional[int] = None, db: Session = Depends(get_db)):
-    epc = epc.strip().upper()
-    if not crud.get_horse(db, epc):
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    records = crud.get_checkins(db, epc, race_id=race_id)
+@router.get("/horses/{chip_id}/checkins")
+def get_checkins(chip_id: str, race_id: Optional[int] = None, db: Session = Depends(get_db)):
+    chip_id = chip_id.strip().upper()
+    if not crud.get_horse(db, chip_id):
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    records = crud.get_checkins(db, chip_id, race_id=race_id)
     return {
-        "epc": epc,
+        "chip_id": chip_id,
         "checkins": [
             {
                 "id": r.id,
@@ -936,11 +985,11 @@ def get_checkins(epc: str, race_id: Optional[int] = None, db: Session = Depends(
     }
 
 
-@router.post("/horses/{epc}/testbarn/checkin")
-def test_barn_checkin(epc: str, req: TestBarnCheckInRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+@router.post("/horses/{chip_id}/testbarn/checkin")
+def test_barn_checkin(chip_id: str, req: TestBarnCheckInRequest, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     result = crud.test_barn_checkin(
         db,
-        epc=epc.strip().upper(),
+        chip_id=chip_id.strip().upper(),
         checkin_by=req.checkin_by,
         race_id=req.race_id,
         sample_id=req.sample_id,
@@ -965,14 +1014,14 @@ def test_barn_checkout(record_id: int, req: TestBarnCheckOutRequest, db: Session
     return result
 
 
-@router.get("/horses/{epc}/testbarn")
-def get_test_barn_records(epc: str, db: Session = Depends(get_db)):
-    epc = epc.strip().upper()
-    if not crud.get_horse(db, epc):
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    records = crud.get_test_barn_records(db, epc)
+@router.get("/horses/{chip_id}/testbarn")
+def get_test_barn_records(chip_id: str, db: Session = Depends(get_db)):
+    chip_id = chip_id.strip().upper()
+    if not crud.get_horse(db, chip_id):
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    records = crud.get_test_barn_records(db, chip_id)
     return {
-        "epc": epc,
+        "chip_id": chip_id,
         "test_barn_records": [
             {
                 "id": r.id,
@@ -1004,7 +1053,7 @@ class BiosensorReadingRequest(BaseModel):
 
 
 class BiosensorBulkItem(BaseModel):
-    horse_epc: str
+    horse_chip_id: str
     recorded_at: Optional[str] = None
     heart_rate_bpm: Optional[int] = Field(None, ge=20, le=300)
     temperature_c: Optional[float] = Field(None, ge=30.0, le=45.0)
@@ -1016,14 +1065,14 @@ class BiosensorBulkRequest(BaseModel):
     readings: list[BiosensorBulkItem]
 
 
-@router.post("/horses/{epc}/biosensor")
+@router.post("/horses/{chip_id}/biosensor")
 def add_biosensor(
-    epc: str,
+    chip_id: str,
     req: BiosensorReadingRequest,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    epc = epc.strip().upper()
+    chip_id = chip_id.strip().upper()
     recorded_at = None
     if req.recorded_at:
         try:
@@ -1031,7 +1080,7 @@ def add_biosensor(
         except ValueError:
             raise HTTPException(400, f"Invalid recorded_at format: '{req.recorded_at}'")
     result = crud.add_biosensor_reading(
-        db, horse_epc=epc, recorded_at=recorded_at, race_id=req.race_id,
+        db, horse_chip_id=chip_id, recorded_at=recorded_at, race_id=req.race_id,
         heart_rate_bpm=req.heart_rate_bpm, temperature_c=req.temperature_c,
         stride_hz=req.stride_hz, source=req.source,
     )
@@ -1043,7 +1092,7 @@ def add_biosensor(
 def _biosensor_dict(r):
     return {
         "id": r.id,
-        "horse_epc": r.horse_epc,
+        "horse_chip_id": r.horse_chip_id,
         "race_id": r.race_id,
         "recorded_at": r.recorded_at.isoformat() if r.recorded_at else None,
         "heart_rate_bpm": r.heart_rate_bpm,
@@ -1053,13 +1102,13 @@ def _biosensor_dict(r):
     }
 
 
-@router.get("/horses/{epc}/biosensor")
-def get_biosensor(epc: str, limit: int = 200, db: Session = Depends(get_db)):
-    epc = epc.strip().upper()
-    if not crud.get_horse(db, epc):
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    readings = crud.get_biosensor_readings(db, epc, limit=min(limit, 500))
-    return {"epc": epc, "readings": [_biosensor_dict(r) for r in readings]}
+@router.get("/horses/{chip_id}/biosensor")
+def get_biosensor(chip_id: str, limit: int = 200, db: Session = Depends(get_db)):
+    chip_id = chip_id.strip().upper()
+    if not crud.get_horse(db, chip_id):
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    readings = crud.get_biosensor_readings(db, chip_id, limit=min(limit, 500))
+    return {"chip_id": chip_id, "readings": [_biosensor_dict(r) for r in readings]}
 
 
 @router.get("/races/{race_id}/biosensor")
@@ -1094,7 +1143,7 @@ def bulk_biosensor(
                 errors.append(f"Invalid recorded_at: '{item.recorded_at}'")
                 continue
         result = crud.add_biosensor_reading(
-            db, horse_epc=item.horse_epc.strip().upper(),
+            db, horse_chip_id=item.horse_chip_id.strip().upper(),
             recorded_at=recorded_at, race_id=race_id,
             heart_rate_bpm=item.heart_rate_bpm, temperature_c=item.temperature_c,
             stride_hz=item.stride_hz, source=item.source,
@@ -1110,14 +1159,14 @@ def bulk_biosensor(
 # Temperature history & alerts (Item 3)
 # ------------------------------------------------------------------ #
 
-@router.get("/horses/{epc}/temperature-history")
-def temperature_history(epc: str, limit: int = 50, db: Session = Depends(get_db)):
-    epc = epc.strip().upper()
-    if not crud.get_horse(db, epc):
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    records = crud.get_temperature_history(db, epc, limit=min(limit, 200))
+@router.get("/horses/{chip_id}/temperature-history")
+def temperature_history(chip_id: str, limit: int = 50, db: Session = Depends(get_db)):
+    chip_id = chip_id.strip().upper()
+    if not crud.get_horse(db, chip_id):
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    records = crud.get_temperature_history(db, chip_id, limit=min(limit, 200))
     return {
-        "epc": epc,
+        "chip_id": chip_id,
         "readings": [
             {
                 "id": r.id,
@@ -1132,14 +1181,14 @@ def temperature_history(epc: str, limit: int = 50, db: Session = Depends(get_db)
     }
 
 
-@router.get("/horses/{epc}/temperature-alerts")
-def temperature_alerts(epc: str, db: Session = Depends(get_db)):
-    epc = epc.strip().upper()
-    if not crud.get_horse(db, epc):
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    records = crud.get_temperature_alerts(db, epc)
+@router.get("/horses/{chip_id}/temperature-alerts")
+def temperature_alerts(chip_id: str, db: Session = Depends(get_db)):
+    chip_id = chip_id.strip().upper()
+    if not crud.get_horse(db, chip_id):
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    records = crud.get_temperature_alerts(db, chip_id)
     return {
-        "epc": epc,
+        "chip_id": chip_id,
         "alert_count": len(records),
         "alerts": [
             {

@@ -103,15 +103,15 @@ function HorseList() {
   const filtered = horses.filter(
     (h) =>
       h.name?.toLowerCase().includes(search.toLowerCase()) ||
-      h.epc?.toLowerCase().includes(search.toLowerCase())
+      h.chip_id?.toLowerCase().includes(search.toLowerCase())
   )
 
   const columns = [
     {
-      key: 'epc',
-      label: 'EPC',
+      key: 'chip_id',
+      label: 'Chip ID',
       render: (row) => (
-        <span className="font-timing text-text-muted text-xs">{row.epc}</span>
+        <span className="font-timing text-text-muted text-xs">{row.chip_id}</span>
       ),
     },
     {
@@ -136,7 +136,7 @@ function HorseList() {
 
       <input
         type="text"
-        placeholder="Search by name or EPC..."
+        placeholder="Search by name or chip ID..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="w-full max-w-md bg-surface border border-border text-text-primary px-3 py-2 text-sm font-timing focus:outline-none focus:border-accent mb-6"
@@ -148,8 +148,8 @@ function HorseList() {
         <div className="border border-border bg-surface">
           <DataTable
             columns={columns}
-            rows={filtered.map((h) => ({ ...h, id: h.epc }))}
-            onRowClick={(row) => navigate(`/horses/${row.epc}`)}
+            rows={filtered.map((h) => ({ ...h, id: h.chip_id }))}
+            onRowClick={(row) => navigate(`/horses/${row.chip_id}`)}
             emptyMessage="No horses found"
           />
         </div>
@@ -161,14 +161,14 @@ function HorseList() {
 // ──────────────────────────────────────────────
 // Head-to-Head Panel
 // ──────────────────────────────────────────────
-function HeadToHead({ epc1 }) {
+function HeadToHead({ chip_id1 }) {
   const [epc2Input, setEpc2Input] = useState('')
-  const [epc2, setEpc2] = useState(null)
+  const [chip_id2, setEpc2] = useState(null)
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['h2h', epc1, epc2],
-    queryFn: () => compareHorses(epc1, epc2),
-    enabled: !!epc2,
+    queryKey: ['h2h', chip_id1, chip_id2],
+    queryFn: () => compareHorses(chip_id1, chip_id2),
+    enabled: !!chip_id2,
   })
 
   const meetingColumns = [
@@ -216,7 +216,7 @@ function HeadToHead({ epc1 }) {
         <div className="flex gap-2 mb-4">
           <input
             type="text"
-            placeholder="Enter opponent EPC"
+            placeholder="Enter opponent chip ID"
             value={epc2Input}
             onChange={(e) => setEpc2Input(e.target.value.toUpperCase())}
             className="flex-1 max-w-xs bg-bg border border-border text-text-primary px-3 py-1.5 text-sm font-timing focus:outline-none focus:border-accent"
@@ -261,7 +261,7 @@ function HeadToHead({ epc1 }) {
 // Horse Profile Page
 // ──────────────────────────────────────────────
 // Manual clocker-entry modal
-function LogWorkoutModal({ epc, onClose, onSaved }) {
+function LogWorkoutModal({ chip_id, onClose, onSaved }) {
   const today = new Date().toISOString().slice(0, 10)
   const [form, setForm] = useState({
     workout_date: today, distance_m: '800', surface: 'Dirt', duration_ms_s: '',
@@ -271,7 +271,7 @@ function LogWorkoutModal({ epc, onClose, onSaved }) {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
   const mut = useMutation({
-    mutationFn: () => addWorkout(epc, {
+    mutationFn: () => addWorkout(chip_id, {
       workout_date: form.workout_date,
       distance_m: Number(form.distance_m),
       surface: form.surface || null,
@@ -355,51 +355,51 @@ function LogWorkoutModal({ epc, onClose, onSaved }) {
   )
 }
 
-function HorseDetail({ epc }) {
+function HorseDetail({ chip_id }) {
   const [showAllTestBarn, setShowAllTestBarn] = useState(false)
 
   const { data: horse, isLoading: loadingHorse, error: horseError } = useQuery({
-    queryKey: ['horse', epc],
-    queryFn: () => getHorse(epc),
+    queryKey: ['horse', chip_id],
+    queryFn: () => getHorse(chip_id),
   })
   const { data: career = [], isLoading: loadingCareer } = useQuery({
-    queryKey: ['horse-career', epc],
-    queryFn: () => getHorseCareer(epc),
+    queryKey: ['horse-career', chip_id],
+    queryFn: () => getHorseCareer(chip_id),
     enabled: !!horse,
   })
   const { data: form = [], isLoading: loadingForm, error: formError } = useQuery({
-    queryKey: ['horse-form', epc],
-    queryFn: () => getHorseForm(epc),
+    queryKey: ['horse-form', chip_id],
+    queryFn: () => getHorseForm(chip_id),
     enabled: !!horse,
   })
   const { data: vetRecords = [], isLoading: loadingVet, error: vetError } = useQuery({
-    queryKey: ['horse-vet', epc],
-    queryFn: () => getHorseVet(epc),
+    queryKey: ['horse-vet', chip_id],
+    queryFn: () => getHorseVet(chip_id),
     enabled: !!horse,
   })
   const { data: workoutsRaw = [], isLoading: loadingWorkouts, error: workoutsError } = useQuery({
-    queryKey: ['horse-workouts', epc],
-    queryFn: () => getHorseWorkouts(epc),
+    queryKey: ['horse-workouts', chip_id],
+    queryFn: () => getHorseWorkouts(chip_id),
     enabled: !!horse,
   })
   const { data: checkinsRaw = [], isLoading: loadingCheckins, error: checkinsError } = useQuery({
-    queryKey: ['horse-checkins', epc],
-    queryFn: () => getHorseCheckins(epc),
+    queryKey: ['horse-checkins', chip_id],
+    queryFn: () => getHorseCheckins(chip_id),
     enabled: !!horse,
   })
   const { data: testBarnRaw = [], isLoading: loadingTestBarn, error: testBarnError } = useQuery({
-    queryKey: ['horse-testbarn', epc],
-    queryFn: () => getHorseTestBarn(epc),
+    queryKey: ['horse-testbarn', chip_id],
+    queryFn: () => getHorseTestBarn(chip_id),
     enabled: !!horse,
   })
   const { data: biosensorRaw = [], isLoading: loadingBiosensor } = useQuery({
-    queryKey: ['horse-biosensor', epc],
-    queryFn: () => getHorseBiosensor(epc, 200),
+    queryKey: ['horse-biosensor', chip_id],
+    queryFn: () => getHorseBiosensor(chip_id, 200),
     enabled: !!horse,
   })
   const { data: tempAlerts } = useQuery({
-    queryKey: ['horse-temp-alerts', epc],
-    queryFn: () => getHorseTemperatureAlerts(epc),
+    queryKey: ['horse-temp-alerts', chip_id],
+    queryFn: () => getHorseTemperatureAlerts(chip_id),
     enabled: !!horse,
   })
   const qc = useQueryClient()
@@ -698,7 +698,7 @@ function HorseDetail({ epc }) {
             {horse.name}
           </h1>
           <p className="font-timing text-text-muted text-xs mt-1">
-            EPC: <span className="text-accent">{horse.epc}</span>
+            Chip ID: <span className="text-accent">{horse.chip_id}</span>
             {horse.breed && <span className="ml-4">{horse.breed}</span>}
             {horse.date_of_birth && <span className="ml-4">DOB: {horse.date_of_birth}</span>}
           </p>
@@ -923,13 +923,13 @@ function HorseDetail({ epc }) {
       )}
 
       {/* ── SECTION 11: Head to Head ── */}
-      <HeadToHead epc1={epc} />
+      <HeadToHead chip_id1={chip_id} />
 
       {showLogWorkout && (
         <LogWorkoutModal
-          epc={epc}
+          chip_id={chip_id}
           onClose={() => setShowLogWorkout(false)}
-          onSaved={() => qc.invalidateQueries({ queryKey: ['horse-workouts', epc] })}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['horse-workouts', chip_id] })}
         />
       )}
     </div>
@@ -937,10 +937,10 @@ function HorseDetail({ epc }) {
 }
 
 // ──────────────────────────────────────────────
-// Route wrapper — /horses vs /horses/:epc
+// Route wrapper — /horses vs /horses/:chip_id
 // ──────────────────────────────────────────────
 export default function HorseProfile() {
-  const { epc } = useParams()
-  if (epc) return <HorseDetail epc={epc.toUpperCase()} />
+  const { chip_id } = useParams()
+  if (chip_id) return <HorseDetail chip_id={chip_id.toUpperCase()} />
   return <HorseList />
 }

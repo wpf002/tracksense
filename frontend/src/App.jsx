@@ -43,7 +43,7 @@ export default function App() {
             <Route path="/live" element={<LiveRace />} />
             <Route path="/results" element={<RaceResults />} />
             <Route path="/horses" element={<HorseProfile />} />
-            <Route path="/horses/:epc" element={<HorseProfile />} />
+            <Route path="/horses/:chip_id" element={<HorseProfile />} />
             <Route path="/builder" element={<RaceCardBuilder />} />
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/webhooks" element={<Webhooks />} />

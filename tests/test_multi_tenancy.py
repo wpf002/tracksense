@@ -189,19 +189,19 @@ def test_list_horses_filters_by_tenant(db_session):
 
     # Add horses to different tenants
     horse_a = Horse()
-    horse_a.epc = "EPC-A1"
+    horse_a.chip_id = "985112000100010"
     horse_a.name = "Alpha"
     horse_a.tenant_id = t_a.id
     db_session.add(horse_a)
 
     horse_b = Horse()
-    horse_b.epc = "EPC-B1"
+    horse_b.chip_id = "985112000100011"
     horse_b.name = "Beta"
     horse_b.tenant_id = t_b.id
     db_session.add(horse_b)
 
     horse_null = Horse()
-    horse_null.epc = "EPC-NULL"
+    horse_null.chip_id = "985112000100012"
     horse_null.name = "Unscoped"
     horse_null.tenant_id = None
     db_session.add(horse_null)
@@ -211,12 +211,12 @@ def test_list_horses_filters_by_tenant(db_session):
     # tenant A sees only A
     horses_a = crud.list_horses(db_session, tenant_id=t_a.id)
     assert len(horses_a) == 1
-    assert horses_a[0].epc == "EPC-A1"
+    assert horses_a[0].chip_id == "985112000100010"
 
     # tenant B sees only B
     horses_b = crud.list_horses(db_session, tenant_id=t_b.id)
     assert len(horses_b) == 1
-    assert horses_b[0].epc == "EPC-B1"
+    assert horses_b[0].chip_id == "985112000100011"
 
     # super-admin (tenant_id=None) sees all
     all_horses = crud.list_horses(db_session, tenant_id=None)

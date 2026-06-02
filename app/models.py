@@ -35,7 +35,7 @@ class Tenant(Base):
 class Horse(Base):
     __tablename__ = "horses"
 
-    epc: Mapped[str] = mapped_column(String, primary_key=True)
+    chip_id: Mapped[str] = mapped_column(String, primary_key=True)  # Jockey Club LF microchip (ISO 11784/11785, 15-digit)
     name: Mapped[str] = mapped_column(String, nullable=False)
     breed: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     date_of_birth: Mapped[Optional[str]] = mapped_column(String, nullable=True)   # ISO date string
@@ -61,7 +61,7 @@ class Owner(Base):
     __tablename__ = "owners"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False)
     owner_name: Mapped[str] = mapped_column(String, nullable=False)
     from_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     to_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # None = current owner
@@ -73,7 +73,7 @@ class Trainer(Base):
     __tablename__ = "trainers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False)
     trainer_name: Mapped[str] = mapped_column(String, nullable=False)
     from_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     to_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -116,13 +116,13 @@ class Race(Base):
 class RaceEntry(Base):
     __tablename__ = "race_entries"
     __table_args__ = (
-        UniqueConstraint("race_id", "horse_epc"),
+        UniqueConstraint("race_id", "horse_chip_id"),
         UniqueConstraint("race_id", "saddle_cloth"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     race_id: Mapped[int] = mapped_column(Integer, ForeignKey("races.id"), nullable=False)
-    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False)
     saddle_cloth: Mapped[str] = mapped_column(String, nullable=False)
     jockey: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
@@ -133,13 +133,13 @@ class RaceEntry(Base):
 class RaceResult(Base):
     __tablename__ = "race_results"
     __table_args__ = (
-        UniqueConstraint("race_id", "horse_epc"),
+        UniqueConstraint("race_id", "horse_chip_id"),
         UniqueConstraint("race_id", "finish_position"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     race_id: Mapped[int] = mapped_column(Integer, ForeignKey("races.id"), nullable=False)
-    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False)
     finish_position: Mapped[int] = mapped_column(Integer, nullable=False)
     elapsed_ms: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -151,7 +151,7 @@ class VetRecord(Base):
     __tablename__ = "vet_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False)
     event_date: Mapped[str] = mapped_column(String, nullable=False)  # ISO date string
     event_type: Mapped[str] = mapped_column(String, nullable=False)  # e.g. "implant", "clearance", "treatment"
     notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -164,7 +164,7 @@ class WorkoutRecord(Base):
     __tablename__ = "workout_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False, index=True)
     workout_date: Mapped[str] = mapped_column(String(10), nullable=False)          # YYYY-MM-DD
     distance_m: Mapped[float] = mapped_column(Float, nullable=False)
     surface: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)      # Dirt | Turf | Synthetic
@@ -186,7 +186,7 @@ class CheckInRecord(Base):
     __tablename__ = "checkin_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False, index=True)
     race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True, index=True)
     scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     scanned_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -202,7 +202,7 @@ class TestBarnRecord(Base):
     __tablename__ = "test_barn_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False, index=True)
     race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True)
     checkin_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     checkin_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -305,7 +305,7 @@ class BiosensorReading(Base):
     __tablename__ = "biosensor_readings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False, index=True)
     race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True, index=True)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
                                                    default=lambda: datetime.now(timezone.utc))
