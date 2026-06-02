@@ -14,11 +14,9 @@ from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 
 from app.server import app
-from app.gate_registry import registry
-from app.race_tracker import set_tracker
 from app.routes import get_current_user
 from app.database import get_db, Base
-from app.models import User, VenueRecord, GateRecord, Horse
+from app.models import User, VenueRecord, Horse
 from app.api_keys_router import require_jwt_or_api_key
 from app import crud
 
@@ -58,14 +56,10 @@ def test_client(db_session):
     app.dependency_overrides[get_current_user] = lambda: _mock_admin
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[require_jwt_or_api_key] = lambda: _mock_admin
-    registry._venues.clear()
-    set_tracker(None)
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c, db_session
 
-    registry._venues.clear()
-    set_tracker(None)
     app.dependency_overrides.pop(get_current_user, None)
     app.dependency_overrides.pop(get_db, None)
     app.dependency_overrides.pop(require_jwt_or_api_key, None)
@@ -77,12 +71,6 @@ def _create_venue(c, venue_id="TESTOVAL"):
         "name": "Test Oval",
         "total_distance_m": 1600.0,
     })
-    c.post(f"/venues/{venue_id}/gates", json={
-        "reader_id": "GATE-START", "name": "Start", "distance_m": 0.0, "is_finish": False,
-    })
-    c.post(f"/venues/{venue_id}/gates", json={
-        "reader_id": "GATE-FINISH", "name": "Finish", "distance_m": 1600.0, "is_finish": True,
-    })
     return venue_id
 
 
@@ -90,61 +78,6 @@ def _create_horse(db, epc="EPC-TEST-001", name="Test Horse"):
     db.merge(Horse(epc=epc, name=name))
     db.commit()
     return epc
-
-
-# ─── Item 1: Track path ───────────────────────────────────────────────────────
-
-class TestTrackPath:
-    def test_set_and_get_track_path(self, test_client):
-        c, db = test_client
-        venue_id = _create_venue(c)
-
-        points = [{"x": round(0.5 + 0.35 * (i * 0.1), 3), "y": 0.5} for i in range(5)]
-        # Provide at least 3 valid points
-        pts = [{"x": 0.1, "y": 0.5}, {"x": 0.5, "y": 0.1}, {"x": 0.9, "y": 0.5},
-               {"x": 0.5, "y": 0.9}]
-
-        r = c.post(f"/venues/{venue_id}/track-path", json={"points": pts})
-        assert r.status_code == 200
-        body = r.json()
-        assert body["ok"] is True
-        assert body["count"] == len(pts)
-
-    def test_get_track_path(self, test_client):
-        c, db = test_client
-        venue_id = _create_venue(c)
-        pts = [{"x": 0.1, "y": 0.5}, {"x": 0.5, "y": 0.1}, {"x": 0.9, "y": 0.5}]
-        c.post(f"/venues/{venue_id}/track-path", json={"points": pts})
-
-        r = c.get(f"/venues/{venue_id}/track-path")
-        assert r.status_code == 200
-        data = r.json()
-        assert data["venue_id"] == venue_id
-        assert data["count"] == len(pts)
-        assert len(data["points"]) == len(pts)
-        assert data["points"][0]["sequence"] == 0
-
-    def test_track_path_404_for_unknown_venue(self, test_client):
-        c, _ = test_client
-        r = c.get("/venues/DOESNOTEXIST/track-path")
-        assert r.status_code == 404
-
-    def test_track_path_requires_min_3_points(self, test_client):
-        c, db = test_client
-        venue_id = _create_venue(c)
-        r = c.post(f"/venues/{venue_id}/track-path", json={"points": [{"x": 0.1, "y": 0.5}]})
-        assert r.status_code == 422
-
-    def test_track_path_upsert_replaces_old(self, test_client):
-        c, db = test_client
-        venue_id = _create_venue(c)
-        pts_a = [{"x": 0.1, "y": 0.5}, {"x": 0.5, "y": 0.1}, {"x": 0.9, "y": 0.5}]
-        pts_b = [{"x": 0.2, "y": 0.5}, {"x": 0.5, "y": 0.2}, {"x": 0.8, "y": 0.5},
-                 {"x": 0.5, "y": 0.8}]
-        c.post(f"/venues/{venue_id}/track-path", json={"points": pts_a})
-        c.post(f"/venues/{venue_id}/track-path", json={"points": pts_b})
-        r = c.get(f"/venues/{venue_id}/track-path")
-        assert r.json()["count"] == len(pts_b)
 
 
 # ─── Item 2: Biosensor ────────────────────────────────────────────────────────

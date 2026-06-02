@@ -50,13 +50,11 @@ class Horse(Base):
     trainers: Mapped[list["Trainer"]] = relationship("Trainer", back_populates="horse", cascade="all, delete-orphan")
     vet_records: Mapped[list["VetRecord"]] = relationship("VetRecord", back_populates="horse", cascade="all, delete-orphan")
     race_entries: Mapped[list["RaceEntry"]] = relationship("RaceEntry", back_populates="horse")
-    gate_reads: Mapped[list["GateRead"]] = relationship("GateRead", back_populates="horse")
     race_results: Mapped[list["RaceResult"]] = relationship("RaceResult", back_populates="horse")
     workouts: Mapped[list["WorkoutRecord"]] = relationship("WorkoutRecord", back_populates="horse", cascade="all, delete-orphan")
     checkins: Mapped[list["CheckInRecord"]] = relationship("CheckInRecord", back_populates="horse", cascade="all, delete-orphan")
     test_barn_records: Mapped[list["TestBarnRecord"]] = relationship("TestBarnRecord", back_populates="horse", cascade="all, delete-orphan")
     biosensor_readings: Mapped[list["BiosensorReading"]] = relationship("BiosensorReading", back_populates="horse", cascade="all, delete-orphan")
-    breaks: Mapped[list["BreakRecord"]] = relationship("BreakRecord", back_populates="horse", cascade="all, delete-orphan")
 
 
 class Owner(Base):
@@ -93,25 +91,7 @@ class VenueRecord(Base):
     tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
 
     tenant: Mapped[Optional["Tenant"]] = relationship("Tenant", back_populates="venues")
-    gate_records: Mapped[list["GateRecord"]] = relationship("GateRecord", back_populates="venue", cascade="all, delete-orphan")
     races: Mapped[list["Race"]] = relationship("Race", back_populates="venue")
-    track_path_points: Mapped[list["TrackPathPoint"]] = relationship("TrackPathPoint", back_populates="venue", cascade="all, delete-orphan")
-
-
-class GateRecord(Base):
-    __tablename__ = "gate_records"
-    __table_args__ = (UniqueConstraint("venue_id", "reader_id"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    venue_id: Mapped[str] = mapped_column(String, ForeignKey("venue_records.venue_id"), nullable=False)
-    reader_id: Mapped[str] = mapped_column(String, nullable=False)
-    name: Mapped[str] = mapped_column(String, nullable=False)
-    distance_m: Mapped[float] = mapped_column(Float, nullable=False)
-    is_finish: Mapped[bool] = mapped_column(Boolean, default=False)
-    position_x: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # normalised 0.0–1.0
-    position_y: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # normalised 0.0–1.0
-
-    venue: Mapped["VenueRecord"] = relationship("VenueRecord", back_populates="gate_records")
 
 
 class Race(Base):
@@ -130,7 +110,6 @@ class Race(Base):
     tenant: Mapped[Optional["Tenant"]] = relationship("Tenant", back_populates="races")
     venue: Mapped["VenueRecord"] = relationship("VenueRecord", back_populates="races")
     entries: Mapped[list["RaceEntry"]] = relationship("RaceEntry", back_populates="race", cascade="all, delete-orphan")
-    gate_reads: Mapped[list["GateRead"]] = relationship("GateRead", back_populates="race", cascade="all, delete-orphan")
     results: Mapped[list["RaceResult"]] = relationship("RaceResult", back_populates="race", cascade="all, delete-orphan")
 
 
@@ -149,23 +128,6 @@ class RaceEntry(Base):
 
     race: Mapped["Race"] = relationship("Race", back_populates="entries")
     horse: Mapped["Horse"] = relationship("Horse", back_populates="race_entries")
-
-
-class GateRead(Base):
-    __tablename__ = "gate_reads"
-    __table_args__ = (UniqueConstraint("race_id", "horse_epc", "reader_id"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    race_id: Mapped[int] = mapped_column(Integer, ForeignKey("races.id"), nullable=False)
-    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False)
-    reader_id: Mapped[str] = mapped_column(String, nullable=False)
-    gate_name: Mapped[str] = mapped_column(String, nullable=False)
-    distance_m: Mapped[float] = mapped_column(Float, nullable=False)
-    race_elapsed_ms: Mapped[int] = mapped_column(Integer, nullable=False)
-    wall_time: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-
-    race: Mapped["Race"] = relationship("Race", back_populates="gate_reads")
-    horse: Mapped["Horse"] = relationship("Horse", back_populates="gate_reads")
 
 
 class RaceResult(Base):
@@ -336,23 +298,6 @@ class User(Base):
 
 
 # ------------------------------------------------------------------ #
-# Track path geometry (Item 1)
-# ------------------------------------------------------------------ #
-
-class TrackPathPoint(Base):
-    __tablename__ = "track_path_points"
-    __table_args__ = (UniqueConstraint("venue_id", "sequence"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    venue_id: Mapped[str] = mapped_column(String, ForeignKey("venue_records.venue_id"), nullable=False, index=True)
-    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    x: Mapped[float] = mapped_column(Float, nullable=False)   # normalised 0.0–1.0
-    y: Mapped[float] = mapped_column(Float, nullable=False)   # normalised 0.0–1.0
-
-    venue: Mapped["VenueRecord"] = relationship("VenueRecord", back_populates="track_path_points")
-
-
-# ------------------------------------------------------------------ #
 # Biosensor (Item 2)
 # ------------------------------------------------------------------ #
 
@@ -370,23 +315,3 @@ class BiosensorReading(Base):
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="wearable")
 
     horse: Mapped["Horse"] = relationship("Horse", back_populates="biosensor_readings")
-
-
-# ------------------------------------------------------------------ #
-# Gate-break analysis — how a horse breaks from the starting gate
-# ------------------------------------------------------------------ #
-
-class BreakRecord(Base):
-    __tablename__ = "break_records"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    horse_epc: Mapped[str] = mapped_column(String, ForeignKey("horses.epc"), nullable=False, index=True)
-    race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True, index=True)
-    reaction_ms: Mapped[int] = mapped_column(Integer, nullable=False)                  # time from gun to clearing start gate
-    verdict: Mapped[str] = mapped_column(String(16), nullable=False)                   # anticipated | good | slow
-    baseline_delta_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)   # vs horse's own prior average
-    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
-                                                   default=lambda: datetime.now(timezone.utc))
-    source: Mapped[str] = mapped_column(String(32), nullable=False, default="race")    # race | sim
-
-    horse: Mapped["Horse"] = relationship("Horse", back_populates="breaks")

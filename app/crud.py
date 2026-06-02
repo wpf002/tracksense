@@ -19,8 +19,8 @@ import json
 import uuid
 
 from app.models import (
-    Horse, Owner, Trainer, VenueRecord, GateRecord,
-    Race, RaceEntry, GateRead, RaceResult, VetRecord,
+    Horse, Owner, Trainer, VenueRecord,
+    Race, RaceEntry, RaceResult, VetRecord,
     WorkoutRecord, CheckInRecord, TestBarnRecord, User,
     AuditLog, WebhookDelivery, Tenant,
 )
@@ -129,60 +129,6 @@ def delete_venue(db: Session, venue_id: str) -> bool:
     return True
 
 
-def upsert_gate(
-    db: Session,
-    venue_id: str,
-    reader_id: str,
-    name: str,
-    distance_m: float,
-    is_finish: bool,
-    position_x: Optional[float] = None,
-    position_y: Optional[float] = None,
-) -> GateRecord:
-    """Insert or update a gate record for a venue."""
-    existing = (
-        db.query(GateRecord)
-        .filter_by(venue_id=venue_id, reader_id=reader_id)
-        .first()
-    )
-    if existing:
-        existing.name = name
-        existing.distance_m = distance_m
-        existing.is_finish = is_finish
-        existing.position_x = position_x
-        existing.position_y = position_y
-        db.commit()
-        db.refresh(existing)
-        return existing
-    gate = GateRecord(
-        venue_id=venue_id,
-        reader_id=reader_id,
-        name=name,
-        distance_m=distance_m,
-        is_finish=is_finish,
-        position_x=position_x,
-        position_y=position_y,
-    )
-    db.add(gate)
-    db.commit()
-    db.refresh(gate)
-    return gate
-
-
-def delete_gate(db: Session, venue_id: str, reader_id: str) -> bool:
-    """Delete a single gate. Returns True if found and deleted."""
-    gate = (
-        db.query(GateRecord)
-        .filter_by(venue_id=venue_id, reader_id=reader_id)
-        .first()
-    )
-    if not gate:
-        return False
-    db.delete(gate)
-    db.commit()
-    return True
-
-
 # ------------------------------------------------------------------ #
 # Race
 # ------------------------------------------------------------------ #
@@ -225,114 +171,6 @@ def list_races(db: Session, skip: int = 0, limit: int = 50, tenant_id: Optional[
 
 
 # ------------------------------------------------------------------ #
-# Persist race results — idempotent
-# ------------------------------------------------------------------ #
-
-def persist_race_results(db: Session, race_id: int, tracker_state: dict) -> dict:
-    """
-    Write the in-memory tracker state to the database.
-
-    Idempotent: calling this twice for the same race produces the same result.
-    Uses check-before-insert for all child records.
-
-    tracker_state is the dict returned by RaceTracker.get_race_state().
-    Horses must already exist in the horses table (created via POST /horses).
-    Missing horses are skipped with a warning in the return value.
-    """
-    race = db.get(Race, race_id)
-    if not race:
-        return {"ok": False, "error": f"Race {race_id} not found"}
-
-    skipped_horses = []
-    persisted_entries = 0
-    persisted_reads = 0
-    persisted_results = 0
-
-    for horse_data in tracker_state.get("horses", []):
-        epc = horse_data["horse_id"]
-
-        if not db.get(Horse, epc):
-            skipped_horses.append(epc)
-            continue
-
-        # RaceEntry — idempotent
-        entry = (
-            db.query(RaceEntry)
-            .filter_by(race_id=race_id, horse_epc=epc)
-            .first()
-        )
-        if not entry:
-            db.add(RaceEntry(
-                race_id=race_id,
-                horse_epc=epc,
-                saddle_cloth=horse_data.get("saddle_cloth", "?"),
-            ))
-            persisted_entries += 1
-
-        # GateReads — one per gate per horse per race, idempotent
-        for event in horse_data.get("events", []):
-            existing_read = (
-                db.query(GateRead)
-                .filter_by(race_id=race_id, horse_epc=epc, reader_id=event["reader_id"])
-                .first()
-            )
-            if not existing_read:
-                db.add(GateRead(
-                    race_id=race_id,
-                    horse_epc=epc,
-                    reader_id=event["reader_id"],
-                    gate_name=event["gate_name"],
-                    distance_m=event["distance_m"],
-                    race_elapsed_ms=event["elapsed_ms"],
-                    wall_time=None,
-                ))
-                persisted_reads += 1
-
-        # RaceResult — only if horse has a finish position, idempotent
-        finish_position = horse_data.get("finish_position")
-        if finish_position is not None:
-            elapsed_ms = _finish_elapsed_ms(horse_data.get("events", []))
-            existing_result = (
-                db.query(RaceResult)
-                .filter_by(race_id=race_id, horse_epc=epc)
-                .first()
-            )
-            if not existing_result:
-                if elapsed_ms is not None:
-                    db.add(RaceResult(
-                        race_id=race_id,
-                        horse_epc=epc,
-                        finish_position=finish_position,
-                        elapsed_ms=elapsed_ms,
-                    ))
-                    persisted_results += 1
-            else:
-                existing_result.finish_position = finish_position
-                if elapsed_ms is not None:
-                    existing_result.elapsed_ms = elapsed_ms
-
-    if tracker_state.get("status") == "finished":
-        race.status = "finished"
-
-    db.commit()
-    return {
-        "ok": True,
-        "race_id": race_id,
-        "persisted_entries": persisted_entries,
-        "persisted_reads": persisted_reads,
-        "persisted_results": persisted_results,
-        "skipped_horses": skipped_horses,
-    }
-
-
-def _finish_elapsed_ms(events: list[dict]) -> Optional[int]:
-    for event in events:
-        if event.get("is_finish"):
-            return event["elapsed_ms"]
-    return None
-
-
-# ------------------------------------------------------------------ #
 # Career & analytics
 # ------------------------------------------------------------------ #
 
@@ -370,68 +208,6 @@ def get_career_history(db: Session, epc: str) -> list[dict]:
 def get_form_guide(db: Session, epc: str, n: int = 5) -> list[dict]:
     """Last n starts with results."""
     return get_career_history(db, epc)[:n]
-
-
-def get_sectional_averages(db: Session, epc: str) -> list[dict]:
-    """
-    Average elapsed time and speed for each gate segment across all races.
-
-    Segments are identified by (from_reader_id, to_reader_id) pairs.
-    Only consecutive gate pairs (by distance) within each race are counted.
-    """
-    reads = (
-        db.query(GateRead)
-        .filter_by(horse_epc=epc)
-        .order_by(GateRead.race_id, GateRead.distance_m)
-        .all()
-    )
-
-    # Group by race
-    by_race: dict[int, list[GateRead]] = {}
-    for r in reads:
-        by_race.setdefault(r.race_id, []).append(r)
-
-    # Accumulate segment times: key = (from_reader_id, to_reader_id)
-    segments: dict[tuple, dict] = {}
-    for race_reads in by_race.values():
-        sorted_reads = sorted(race_reads, key=lambda r: r.distance_m)
-        for i in range(len(sorted_reads) - 1):
-            r1 = sorted_reads[i]
-            r2 = sorted_reads[i + 1]
-            elapsed = r2.race_elapsed_ms - r1.race_elapsed_ms
-            distance = r2.distance_m - r1.distance_m
-            if elapsed <= 0 or distance <= 0:
-                continue
-            key = (r1.reader_id, r2.reader_id)
-            if key not in segments:
-                segments[key] = {
-                    "from_reader_id": r1.reader_id,
-                    "from_gate_name": r1.gate_name,
-                    "to_reader_id": r2.reader_id,
-                    "to_gate_name": r2.gate_name,
-                    "distance_m": distance,
-                    "elapsed_ms_sum": 0,
-                    "count": 0,
-                }
-            segments[key]["elapsed_ms_sum"] += elapsed
-            segments[key]["count"] += 1
-
-    out = []
-    for seg in segments.values():
-        avg_ms = seg["elapsed_ms_sum"] / seg["count"]
-        distance = seg["distance_m"]
-        speed_ms = distance / (avg_ms / 1000) if avg_ms > 0 else 0
-        out.append({
-            "segment": f"{seg['from_gate_name']} → {seg['to_gate_name']}",
-            "from_reader_id": seg["from_reader_id"],
-            "to_reader_id": seg["to_reader_id"],
-            "distance_m": round(distance, 1),
-            "avg_elapsed_ms": round(avg_ms),
-            "avg_speed_ms": round(speed_ms, 2),
-            "avg_speed_kmh": round(speed_ms * 3.6, 2),
-            "sample_count": seg["count"],
-        })
-    return out
 
 
 def get_head_to_head(db: Session, epc1: str, epc2: str) -> dict:
@@ -883,33 +659,6 @@ def delete_tenant(db: Session, tenant_id: str) -> bool:
 
 
 # ------------------------------------------------------------------ #
-# Track path (Item 1)
-# ------------------------------------------------------------------ #
-
-from app.models import TrackPathPoint
-
-
-def upsert_track_path(db: Session, venue_id: str, points: list[dict]) -> dict:
-    """Replace the entire track path for a venue. points = [{x, y}, ...]."""
-    if not db.get(VenueRecord, venue_id):
-        return {"ok": False, "error": f"Venue '{venue_id}' not found"}
-    db.query(TrackPathPoint).filter_by(venue_id=venue_id).delete()
-    for seq, pt in enumerate(points):
-        db.add(TrackPathPoint(venue_id=venue_id, sequence=seq, x=pt["x"], y=pt["y"]))
-    db.commit()
-    return {"ok": True, "count": len(points)}
-
-
-def get_track_path(db: Session, venue_id: str) -> list[TrackPathPoint]:
-    return (
-        db.query(TrackPathPoint)
-        .filter_by(venue_id=venue_id)
-        .order_by(TrackPathPoint.sequence)
-        .all()
-    )
-
-
-# ------------------------------------------------------------------ #
 # Biosensor (Item 2)
 # ------------------------------------------------------------------ #
 
@@ -1003,67 +752,3 @@ def get_temperature_alerts(db: Session, horse_epc: str) -> list[CheckInRecord]:
     )
 
 
-# ------------------------------------------------------------------ #
-# Gate-break records — starting-gate break analysis
-# ------------------------------------------------------------------ #
-
-from app.models import BreakRecord
-from app.break_analysis import classify_break
-
-
-def add_break_record(
-    db: Session,
-    horse_epc: str,
-    reaction_ms: int,
-    race_id: Optional[int] = None,
-    recorded_at: Optional[datetime] = None,
-    source: str = "race",
-) -> dict:
-    """
-    Record a starting-gate break for a horse. The verdict is derived from
-    fixed reaction-time bands; baseline_delta_ms compares this reaction to
-    the horse's mean reaction over its prior recorded breaks. Idempotent per
-    (race_id, horse_epc) when race_id is provided.
-    """
-    if not db.get(Horse, horse_epc):
-        return {"ok": False, "error": f"Horse '{horse_epc}' not found"}
-
-    if race_id is not None:
-        existing = (
-            db.query(BreakRecord)
-            .filter_by(race_id=race_id, horse_epc=horse_epc)
-            .first()
-        )
-        if existing:
-            return {"ok": True, "id": existing.id, "duplicate": True}
-
-    # Baseline = mean reaction over this horse's prior breaks (excludes this race)
-    prior_q = db.query(BreakRecord.reaction_ms).filter(BreakRecord.horse_epc == horse_epc)
-    if race_id is not None:
-        prior_q = prior_q.filter(BreakRecord.race_id != race_id)
-    prior = [r[0] for r in prior_q.all()]
-    baseline_delta = int(reaction_ms - (sum(prior) / len(prior))) if prior else None
-
-    record = BreakRecord(
-        horse_epc=horse_epc,
-        race_id=race_id,
-        reaction_ms=reaction_ms,
-        verdict=classify_break(reaction_ms),
-        baseline_delta_ms=baseline_delta,
-        recorded_at=recorded_at or datetime.now(timezone.utc),
-        source=source,
-    )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
-    return {"ok": True, "id": record.id, "verdict": record.verdict, "baseline_delta_ms": baseline_delta}
-
-
-def get_breaks(db: Session, horse_epc: str, limit: int = 50) -> list[BreakRecord]:
-    return (
-        db.query(BreakRecord)
-        .filter_by(horse_epc=horse_epc)
-        .order_by(BreakRecord.recorded_at.desc())
-        .limit(limit)
-        .all()
-    )

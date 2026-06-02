@@ -6,30 +6,14 @@ import {
 } from 'recharts'
 import {
   listHorses, getHorse, getHorseCareer, getHorseForm,
-  getHorseSectionals, getHorseVet, compareHorses,
+  getHorseVet, compareHorses,
   getHorseWorkouts, getHorseCheckins, getHorseTestBarn,
   getHorseBiosensor, getHorseTemperatureAlerts,
-  getHorseBreaks, addWorkout,
+  addWorkout,
 } from '../api/horses'
-import { listVenues } from '../api/venues'
-import {
-  simulateWorkout, getWorkoutStatus, getWorkoutState, saveWorkout,
-} from '../api/races'
 import DataTable from '../components/ui/DataTable'
 import TimingDisplay from '../components/ui/TimingDisplay'
 import StatBadge from '../components/ui/StatBadge'
-
-// Gate-break verdict → display colour
-const BREAK_VERDICT_STYLE = {
-  anticipated: 'text-red-400 border-red-700 bg-red-950',
-  good: 'text-green-400 border-green-700 bg-green-950',
-  slow: 'text-amber-400 border-amber-700 bg-amber-950',
-}
-const BREAK_VERDICT_LABEL = {
-  anticipated: 'TOO FAST',
-  good: 'GOOD',
-  slow: 'SLOW',
-}
 
 const ACCENT = '#f59e0b'
 
@@ -276,35 +260,6 @@ function HeadToHead({ epc1 }) {
 // ──────────────────────────────────────────────
 // Horse Profile Page
 // ──────────────────────────────────────────────
-// Compact venue picker + "Run Timed Work" button for the workout simulator
-function WorkoutSimControl({ venues, disabled, onRun }) {
-  const [venueId, setVenueId] = useState('')
-  useEffect(() => {
-    if (!venueId && venues.length) setVenueId(venues[0].venue_id)
-  }, [venues]) // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <div className="flex items-center gap-2">
-      <select
-        value={venueId}
-        onChange={(e) => setVenueId(e.target.value)}
-        disabled={disabled}
-        className="bg-bg border border-border text-text-muted text-xs font-timing px-1.5 py-1 focus:outline-none focus:border-accent disabled:opacity-40"
-      >
-        {venues.map((v) => (
-          <option key={v.venue_id} value={v.venue_id}>{v.venue_id}</option>
-        ))}
-      </select>
-      <button
-        onClick={() => venueId && onRun(venueId)}
-        disabled={disabled || !venueId}
-        className="text-xs font-timing uppercase tracking-widest border border-green-700 text-green-400 hover:bg-green-950 px-2 py-1 transition-colors disabled:opacity-40"
-      >
-        {disabled ? 'Working…' : '▶ Run Timed Work'}
-      </button>
-    </div>
-  )
-}
-
 // Manual clocker-entry modal
 function LogWorkoutModal({ epc, onClose, onSaved }) {
   const today = new Date().toISOString().slice(0, 10)
@@ -417,11 +372,6 @@ function HorseDetail({ epc }) {
     queryFn: () => getHorseForm(epc),
     enabled: !!horse,
   })
-  const { data: sectionals = [], isLoading: loadingSectionals, error: sectionalsError } = useQuery({
-    queryKey: ['horse-sectionals', epc],
-    queryFn: () => getHorseSectionals(epc),
-    enabled: !!horse,
-  })
   const { data: vetRecords = [], isLoading: loadingVet, error: vetError } = useQuery({
     queryKey: ['horse-vet', epc],
     queryFn: () => getHorseVet(epc),
@@ -452,45 +402,9 @@ function HorseDetail({ epc }) {
     queryFn: () => getHorseTemperatureAlerts(epc),
     enabled: !!horse,
   })
-  const { data: breaks = [], isLoading: loadingBreaks, error: breaksError } = useQuery({
-    queryKey: ['horse-breaks', epc],
-    queryFn: () => getHorseBreaks(epc),
-    enabled: !!horse,
-  })
-  const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: listVenues })
-
   const qc = useQueryClient()
   const [expandedWorkoutId, setExpandedWorkoutId] = useState(null)
   const [showLogWorkout, setShowLogWorkout] = useState(false)
-
-  // ── Workout simulation ("Run Timed Work") ──
-  const [workSimRunning, setWorkSimRunning] = useState(false)
-  const [workSimMsg, setWorkSimMsg] = useState(null)
-
-  const workSimMut = useMutation({
-    mutationFn: (body) => simulateWorkout(body),
-    onSuccess: () => { setWorkSimRunning(true); setWorkSimMsg('Work in progress…') },
-    onError: (err) => setWorkSimMsg(err.response?.data?.detail ?? 'Could not start work'),
-  })
-
-  // Poll the workout tracker while a work is running; save + refresh on finish
-  useEffect(() => {
-    if (!workSimRunning) return
-    const id = setInterval(async () => {
-      try {
-        const st = await getWorkoutStatus()
-        if (st.status === 'finished') {
-          clearInterval(id)
-          await saveWorkout()
-          setWorkSimRunning(false)
-          setWorkSimMsg('✓ Work recorded')
-          qc.invalidateQueries({ queryKey: ['horse-workouts', epc] })
-          qc.invalidateQueries({ queryKey: ['horse-breaks', epc] })
-        }
-      } catch (_) { /* keep polling */ }
-    }, 1500)
-    return () => clearInterval(id)
-  }, [workSimRunning, epc, qc])
 
   if (loadingHorse)
     return <p className="p-6 text-text-muted text-xs font-timing tracking-widest">Loading...</p>
@@ -646,54 +560,6 @@ function HorseDetail({ epc }) {
     },
   ]
 
-  const breakColumns = [
-    {
-      key: 'recorded_at',
-      label: 'Date',
-      render: (r) => (
-        <span className="font-timing text-xs text-text-muted">
-          {r.recorded_at ? new Date(r.recorded_at).toLocaleDateString() : '—'}
-        </span>
-      ),
-    },
-    {
-      key: 'reaction_ms',
-      label: 'Reaction',
-      render: (r) => (
-        <span className="font-timing text-text-primary">{(r.reaction_ms / 1000).toFixed(3)}s</span>
-      ),
-    },
-    {
-      key: 'verdict',
-      label: 'Verdict',
-      render: (r) => (
-        <span className={`text-[10px] font-timing font-bold uppercase tracking-wide px-1.5 py-0.5 border ${BREAK_VERDICT_STYLE[r.verdict] ?? 'border-border text-text-muted'}`}>
-          {BREAK_VERDICT_LABEL[r.verdict] ?? r.verdict}
-        </span>
-      ),
-    },
-    {
-      key: 'baseline_delta_ms',
-      label: 'vs Baseline',
-      render: (r) => {
-        if (r.baseline_delta_ms == null) return <span className="text-xs text-text-muted">—</span>
-        const d = r.baseline_delta_ms
-        return (
-          <span className={`font-timing text-xs ${d < 0 ? 'text-green-400' : d > 0 ? 'text-amber-400' : 'text-text-muted'}`}>
-            {d > 0 ? '+' : ''}{(d / 1000).toFixed(3)}s
-          </span>
-        )
-      },
-    },
-    {
-      key: 'source',
-      label: 'Source',
-      render: (r) => (
-        <span className="text-[10px] font-timing uppercase tracking-wide text-text-muted">{r.source}</span>
-      ),
-    },
-  ]
-
   const splitColumns = [
     { key: 'segment', label: 'Segment', render: (s) => <span className="text-xs text-text-primary">{s.segment}</span> },
     { key: 'distance_m', label: 'Distance', render: (s) => <span className="font-timing text-xs text-text-muted">{s.distance_m}m</span> },
@@ -815,33 +681,6 @@ function HorseDetail({ epc }) {
     },
   ]
 
-  const sectionalTableColumns = [
-    {
-      key: 'segment',
-      label: 'Segment',
-      render: (r) => <span className="font-timing text-xs text-text-primary">{r.segment}</span>,
-    },
-    {
-      key: 'sample_count',
-      label: 'Races',
-      render: (r) => <span className="font-timing text-xs text-text-muted">{r.sample_count}</span>,
-    },
-    {
-      key: 'avg_elapsed_ms',
-      label: 'Avg Time',
-      render: (r) => <TimingDisplay ms={r.avg_elapsed_ms} />,
-    },
-    {
-      key: 'avg_speed_kmh',
-      label: 'Avg Speed',
-      render: (r) => (
-        <span className="font-timing text-xs text-accent">
-          {r.avg_speed_kmh != null ? `${r.avg_speed_kmh.toFixed(1)} km/h` : '—'}
-        </span>
-      ),
-    },
-  ]
-
   return (
     <div className="p-6">
       {/* Back */}
@@ -906,81 +745,7 @@ function HorseDetail({ epc }) {
         )}
       </SectionShell>
 
-      {/* ── SECTION 4: Sectional Averages ── */}
-      <SectionShell title="Sectional Averages">
-        {loadingSectionals ? <SectionLoading /> : sectionalsError ? <SectionError /> : sectionals.length === 0 ? (
-          <p className="px-4 py-3 text-text-muted text-xs font-timing">No sectional data available</p>
-        ) : (
-          <>
-            <div style={{ height: 280, background: '#111111' }} className="border-b border-border p-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={sectionals} margin={{ top: 4, right: 8, left: -10, bottom: 70 }}>
-                  <XAxis
-                    dataKey="segment"
-                    tick={{ fill: '#6b7280', fontSize: 9 }}
-                    tickLine={false}
-                    axisLine={{ stroke: '#2a2a2a' }}
-                    interval={0}
-                    angle={-40}
-                    textAnchor="end"
-                    height={90}
-                  />
-                  <YAxis
-                    tick={{ fill: '#6b7280', fontSize: 10, fontFamily: 'monospace' }}
-                    tickLine={false}
-                    axisLine={false}
-                    unit=" km/h"
-                  />
-                  <Tooltip
-                    contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', color: '#f5f5f5', fontSize: 12 }}
-                    cursor={{ fill: 'rgba(245,158,11,0.05)' }}
-                    formatter={(val) => [`${val?.toFixed(1)} km/h`, 'Avg Speed']}
-                  />
-                  <Bar dataKey="avg_speed_kmh" fill={ACCENT} radius={0} maxBarSize={48} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <DataTable
-              columns={sectionalTableColumns}
-              rows={sectionals.map((r, i) => ({ ...r, id: i }))}
-              emptyMessage=""
-            />
-          </>
-        )}
-      </SectionShell>
-
-      {/* ── SECTION 4.5: Gate Break ── */}
-      <SectionShell title="Gate Break — Start Reaction">
-        {loadingBreaks ? <SectionLoading /> : breaksError ? <SectionError /> : breaks.length === 0 ? (
-          <p className="px-4 py-3 text-text-muted text-xs font-timing">No break data available</p>
-        ) : (
-          <>
-            <div className="flex items-stretch border-b border-border flex-wrap">
-              <div className="px-4 py-3 border-r border-border">
-                <p className="text-[10px] uppercase tracking-widest text-text-muted">Latest Verdict</p>
-                <span className={`mt-1 inline-block text-xs font-timing font-bold uppercase tracking-wide px-2 py-0.5 border ${BREAK_VERDICT_STYLE[breaks[0].verdict] ?? 'border-border text-text-muted'}`}>
-                  {BREAK_VERDICT_LABEL[breaks[0].verdict] ?? breaks[0].verdict}
-                </span>
-              </div>
-              <StatBadge label="Reaction" value={`${(breaks[0].reaction_ms / 1000).toFixed(3)}s`} />
-              <StatBadge
-                label="vs Baseline"
-                value={breaks[0].baseline_delta_ms == null
-                  ? '—'
-                  : `${breaks[0].baseline_delta_ms > 0 ? '+' : ''}${(breaks[0].baseline_delta_ms / 1000).toFixed(3)}s`}
-                variant={breaks[0].baseline_delta_ms != null && breaks[0].baseline_delta_ms < 0 ? 'accent' : 'muted'}
-              />
-            </div>
-            <DataTable
-              columns={breakColumns}
-              rows={breaks.slice(0, 10).map((r) => ({ ...r }))}
-              emptyMessage="No break records"
-            />
-          </>
-        )}
-      </SectionShell>
-
-      {/* ── SECTION 5: Workout Log ── */}
+      {/* ── SECTION 4: Workout Log ── */}
       <div className="border border-border bg-surface mb-6">
         <div className="px-4 py-2 border-b border-border flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2">
@@ -990,19 +755,6 @@ function HorseDetail({ epc }) {
             </span>
           </div>
           <div className="flex items-center gap-3">
-            {workSimMsg && <span className="text-xs font-timing text-text-muted">{workSimMsg}</span>}
-            <WorkoutSimControl
-              venues={venues}
-              disabled={workSimRunning || workSimMut.isPending}
-              onRun={(venue_id) =>
-                workSimMut.mutate({
-                  venue_id,
-                  horse_ids: [epc],
-                  rider_name: 'Exercise Rider',
-                  clocker_name: 'Track Clocker',
-                })
-              }
-            />
             <button
               onClick={() => setShowLogWorkout(true)}
               className="text-xs font-timing uppercase tracking-widest border border-border text-text-muted hover:border-accent hover:text-accent px-2 py-1 transition-colors"

@@ -35,21 +35,7 @@ if os.path.exists(db):
         con.commit()
         print("[schema] Added temperature_c column to checkin_records.")
 
-    # track_path_points table (Item 1)
     tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-    if "track_path_points" not in tables:
-        con.execute("""
-            CREATE TABLE track_path_points (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                venue_id VARCHAR NOT NULL REFERENCES venue_records(venue_id) ON DELETE CASCADE,
-                sequence INTEGER NOT NULL,
-                x REAL NOT NULL,
-                y REAL NOT NULL,
-                UNIQUE(venue_id, sequence)
-            )
-        """)
-        con.commit()
-        print("[schema] Created track_path_points table.")
 
     # biosensor_readings table (Item 2)
     if "biosensor_readings" not in tables:
@@ -82,23 +68,6 @@ if os.path.exists(db):
             con.execute(f"ALTER TABLE workout_records ADD COLUMN {col} {decl}")
             con.commit()
             print(f"[schema] Added {col} column to workout_records.")
-
-    # break_records table — starting-gate break analysis
-    if "break_records" not in tables:
-        con.execute("""
-            CREATE TABLE break_records (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                horse_epc VARCHAR NOT NULL REFERENCES horses(epc),
-                race_id INTEGER REFERENCES races(id),
-                reaction_ms INTEGER NOT NULL,
-                verdict VARCHAR(16) NOT NULL,
-                baseline_delta_ms INTEGER,
-                recorded_at DATETIME NOT NULL,
-                source VARCHAR(32) NOT NULL DEFAULT 'race'
-            )
-        """)
-        con.commit()
-        print("[schema] Created break_records table.")
 
     con.close()
 PYEOF

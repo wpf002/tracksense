@@ -2,7 +2,6 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.8.2
 requests==2.32.3
-pyserial==3.5
 httpx==0.27.2
 pytest==9.0.2
 sqlalchemy==2.0.36
@@ -11,5 +10,3 @@ psycopg2-binary==2.9.10
 redis==5.2.1
 python-jose[cryptography]==3.3.0
 bcrypt==5.0.0
-sllurp
-pynput==1.7.7  # bench-test only: HID keyboard capture for scripts/hid_bench_test.py

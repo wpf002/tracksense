@@ -30,12 +30,10 @@ from app.database import Base
 import app.models  # noqa: F401 — registers all ORM classes
 from app.models import (
     Horse, Owner, Trainer, VetRecord,
-    VenueRecord, GateRecord, TrackPathPoint,
-    Race, RaceEntry, GateRead, RaceResult,
+    VenueRecord,
+    Race, RaceEntry, RaceResult,
     WorkoutRecord, CheckInRecord, TestBarnRecord,
-    BreakRecord,
 )
-from app.break_analysis import classify_break
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -316,10 +314,10 @@ def weighted_sample_no_replacement(population: list, weights: list, k: int) -> l
 
 def clear_tables(session) -> None:
     for table in [
-        "break_records", "biosensor_readings",
+        "biosensor_readings",
         "test_barn_records", "checkin_records", "workout_records",
-        "race_results", "gate_reads", "race_entries", "races",
-        "track_path_points", "gate_records", "venue_records",
+        "race_results", "race_entries", "races",
+        "venue_records",
         "vet_records", "trainers", "owners", "horses",
     ]:
         session.execute(text(f"DELETE FROM {table}"))
@@ -366,6 +364,9 @@ def seed_venues(session) -> dict:
     """
     venue_map = {}
     for v in VENUES:
+        # Gate tuples + segment times are still computed (pure helpers) so we can
+        # derive realistic per-race finish times for RaceResult — but gates are no
+        # longer persisted (the fixed-gate timing layer was removed in Phase 1).
         gates       = build_venue_gates(v["distance"])
         segments_ms = compute_segments_ms(gates, v["distance"])
         session.add(VenueRecord(
@@ -373,17 +374,6 @@ def seed_venues(session) -> dict:
             name=v["name"],
             total_distance_m=v["distance"],
         ))
-        for reader_id, name, dist, is_finish in gates:
-            px, py = gate_oval_position(dist, v["distance"])
-            session.add(GateRecord(
-                venue_id=v["venue_id"],
-                reader_id=reader_id,
-                name=name,
-                distance_m=dist,
-                is_finish=is_finish,
-                position_x=px,
-                position_y=py,
-            ))
         venue_map[v["venue_id"]] = {**v, "gates": gates, "segments_ms": segments_ms}
     session.commit()
     return venue_map
@@ -447,8 +437,6 @@ def seed_races(session, venue_map: dict, today: date) -> tuple:
     start        = today - timedelta(days=90)
     race_records = []
     venue_stats  = {v["venue_id"]: {"days": set(), "races": 0, "entries": 0} for v in VENUES}
-    # Track each horse's break-reaction history so baseline deltas are realistic
-    break_history: dict[str, list[int]] = {}
 
     current = start
     while current < today:
@@ -500,39 +488,12 @@ def seed_races(session, venue_map: dict, today: date) -> tuple:
                         saddle_cloth=saddle_cloth,
                         jockey=random.choice(JOCKEYS),
                     ))
-                    for gate_idx, (reader_id, gate_name, gate_dist, _) in enumerate(vd["gates"]):
-                        session.add(GateRead(
-                            race_id=race.id,
-                            horse_epc=epc,
-                            reader_id=reader_id,
-                            gate_name=gate_name,
-                            distance_m=gate_dist,
-                            race_elapsed_ms=times[gate_idx],
-                            wall_time=None,
-                        ))
                     session.add(RaceResult(
                         race_id=race.id,
                         horse_epc=epc,
                         finish_position=position,
                         elapsed_ms=times[-1],
                     ))
-
-                    # Starting-gate break: synthetic reaction time per starter
-                    reaction_ms = max(0, int(random.gauss(320, 120)))
-                    prior = break_history.get(epc, [])
-                    baseline_delta = (
-                        int(reaction_ms - (sum(prior) / len(prior))) if prior else None
-                    )
-                    session.add(BreakRecord(
-                        race_id=race.id,
-                        horse_epc=epc,
-                        reaction_ms=reaction_ms,
-                        verdict=classify_break(reaction_ms),
-                        baseline_delta_ms=baseline_delta,
-                        recorded_at=race_dt,
-                        source="race",
-                    ))
-                    break_history.setdefault(epc, []).append(reaction_ms)
 
                 last_ms = horse_times[-1][1][-1]
                 race_records.append({
@@ -666,30 +627,6 @@ def seed_test_barn(session, race_records: list) -> int:
     return total
 
 
-def seed_track_paths(session, venue_map: dict) -> int:
-    """Seed 48-point oval track path for every venue."""
-    points = oval_path_points(48)
-    total = 0
-    for venue_id in venue_map:
-        for seq, pt in enumerate(points):
-            session.add(TrackPathPoint(venue_id=venue_id, sequence=seq, x=pt["x"], y=pt["y"]))
-            total += 1
-    session.commit()
-    return total
-
-
-def seed_registry(venue_map: dict) -> None:
-    """Hydrate the in-memory GateRegistry so Race Builder works immediately."""
-    try:
-        from app.gate_registry import registry
-        for venue_id, v in venue_map.items():
-            registry.create_venue(venue_id, v["name"], v["distance"])
-            for reader_id, name, dist, is_finish in v["gates"]:
-                registry.add_gate(venue_id, reader_id, name, dist, is_finish)
-    except Exception as exc:
-        print(f"[seed] Warning: in-memory registry hydration skipped — {exc}")
-
-
 # ------------------------------------------------------------------ #
 # Main
 # ------------------------------------------------------------------ #
@@ -729,7 +666,7 @@ def run(force: bool = False) -> None:
 
         today = datetime.now().date()
 
-        print(f"[seed] Creating {len(VENUES)} venues and gates...")
+        print(f"[seed] Creating {len(VENUES)} venues...")
         venue_map = seed_venues(session)
 
         print(f"[seed] Creating/updating {len(HORSES)} horses, owners, trainers...")
@@ -759,34 +696,22 @@ def run(force: bool = False) -> None:
         print("[seed] Generating test barn records...")
         n_test_barn = seed_test_barn(session, race_records)
 
-        print("[seed] Seeding track path geometry...")
-        n_path_pts = seed_track_paths(session, venue_map)
-
-        print("[seed] Seeding in-memory gate registry...")
-        seed_registry(venue_map)
-
         print("[seed] Done.\n")
 
         # ── Summary ──────────────────────────────────────────────────
         n_races   = len(race_records)
         n_entries = sum(len(r["field"]) for r in race_records)
-        n_reads   = sum(
-            len(r["field"]) * len(venue_map[r["venue_id"]]["gates"])
-            for r in race_records
-        )
 
         print("========== SEED SUMMARY ==========")
         print(f"Venues:            {len(VENUES)}")
         print(f"Horses:            {len(HORSES)}")
         print(f"Races:             {n_races}")
         print(f"Race entries:      {n_entries}")
-        print(f"Gate reads:        {n_reads}")
         print(f"Race results:      {n_entries}")
         print(f"Vet records:       {n_vet + len(HORSES)}")   # +implant per horse
         print(f"Workout records:   {n_workouts}")
         print(f"Check-in records:  {n_checkins}")
         print(f"Test barn records: {n_test_barn}")
-        print(f"Track path points: {n_path_pts}")
         print("===================================\n")
 
         print("First 5 horse EPCs for testing Horse Profile:")

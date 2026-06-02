@@ -1,14 +1,10 @@
 import { useState } from 'react'
 import { useNavigate, Outlet, useLocation, NavLink as RouterNavLink } from 'react-router-dom'
 import NavLink from './NavLink'
-import useRaceStore from '../../store/raceStore'
-import LiveDot from '../ui/LiveDot'
 
 export default function Shell() {
   const navigate = useNavigate()
   const location = useLocation()
-  const status = useRaceStore((s) => s.status)
-  const connected = useRaceStore((s) => s.connected)
 
   const username = localStorage.getItem('ts_username') ?? ''
   const role = localStorage.getItem('ts_role') ?? ''
@@ -41,10 +37,7 @@ export default function Shell() {
 
         {/* Nav items */}
         <nav className="flex flex-col gap-0.5 py-4 flex-1">
-          <NavLink to="/live">
-            {status === 'running' && <LiveDot />}
-            Live Race
-          </NavLink>
+          <NavLink to="/live">Race Day</NavLink>
           <NavLink to="/results">Results</NavLink>
           <NavLink to="/horses">Horses</NavLink>
           <NavLink to="/builder">Race Builder</NavLink>
@@ -71,21 +64,6 @@ export default function Shell() {
             )}
           </div>
         </nav>
-
-        {/* WS connection indicator */}
-        <div className="px-4 py-3 border-t border-border">
-          <div className="flex items-center gap-2">
-            <span
-              className={[
-                'w-2 h-2 rounded-full',
-                connected ? 'bg-green-500' : 'bg-text-muted',
-              ].join(' ')}
-            />
-            <span className="text-xs text-text-muted font-timing">
-              {connected ? 'WS CONNECTED' : 'WS OFFLINE'}
-            </span>
-          </div>
-        </div>
 
         {/* User info + logout */}
         <div className="px-4 py-3 border-t border-border">

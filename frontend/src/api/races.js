@@ -1,25 +1,7 @@
 import client from './client'
 
-export const getRaceStatus = () =>
-  client.get('/race/status').then((r) => r.data)
-
-export const getRaceState = () =>
-  client.get('/race/state').then((r) => r.data)
-
-export const getFinishOrder = () =>
-  client.get('/race/finish-order').then((r) => r.data)
-
-export const registerHorses = (body) =>
-  client.post('/race/register', body).then((r) => r.data)
-
-export const armRace = () =>
-  client.post('/race/arm').then((r) => r.data)
-
-export const resetRace = () =>
-  client.post('/race/reset').then((r) => r.data)
-
-export const simulateRace = () =>
-  client.post('/race/simulate').then((r) => r.data)
+// Race-day ops state is DB-backed. The in-memory gate-timing engine was
+// removed in the Phase 1 pivot, so there are no live-timing / simulate calls.
 
 export const listRaces = () =>
   client.get('/races').then((r) => r.data.races)
@@ -30,27 +12,5 @@ export const createRace = (body) =>
 export const getRace = (id) =>
   client.get(`/races/${id}`).then((r) => r.data)
 
-export const persistRace = (id) =>
-  client.post(`/races/${id}/persist`).then((r) => r.data)
-
-export const pauseSimulation = () =>
-  client.post('/race/simulate/pause').then((r) => r.data)
-
-export const resumeSimulation = () =>
-  client.post('/race/simulate/resume').then((r) => r.data)
-
-export const quickBuild = (body) =>
-  client.post('/race/quick-build', body).then((r) => r.data)
-
-// ── Morning works (workout simulation) ──────────────────────────────
-export const simulateWorkout = (body) =>
-  client.post('/workout/simulate', body).then((r) => r.data)
-
-export const getWorkoutState = () =>
-  client.get('/workout/state').then((r) => r.data)
-
-export const getWorkoutStatus = () =>
-  client.get('/workout/status').then((r) => r.data)
-
-export const saveWorkout = () =>
-  client.post('/workout/simulate/save').then((r) => r.data)
+export const getRaceResults = (id) =>
+  client.get(`/races/${id}/results`).then((r) => r.data)

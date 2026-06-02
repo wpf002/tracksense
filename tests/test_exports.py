@@ -15,8 +15,6 @@ from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 
 from app.server import app
-from app.gate_registry import registry
-from app.race_tracker import set_tracker
 from app.routes import get_current_user
 from app.database import get_db, Base
 from app.models import User, VenueRecord, Race, Horse, RaceEntry, RaceResult
@@ -60,14 +58,10 @@ def export_client(db_session):
     app.dependency_overrides[get_current_user] = lambda: _mock_admin
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[require_jwt_or_api_key] = lambda: _mock_admin
-    registry._venues.clear()
-    set_tracker(None)
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c, db_session
 
-    registry._venues.clear()
-    set_tracker(None)
     app.dependency_overrides.pop(get_current_user, None)
     app.dependency_overrides.pop(get_db, None)
     app.dependency_overrides.pop(require_jwt_or_api_key, None)

@@ -1,25 +1,12 @@
 
-import asyncio
-import json
-import random
-import threading
-import time
 from datetime import datetime, timezone
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from typing import Optional
 
 from app import gatesmart
-
-from app.gate_registry import registry
-from app.race_tracker import (
-    RaceTracker, HorseEntry,
-    get_tracker, set_tracker,
-    get_workout_tracker, set_workout_tracker,
-)
-from app.websocket_manager import ws_manager
 from app.database import get_db
 from app import crud
 from app.auth import create_access_token, decode_token
@@ -62,32 +49,6 @@ class CreateVenueRequest(BaseModel):
     total_distance_m: float = Field(..., description="Track distance in metres e.g. 1609")
 
 
-class AddGateRequest(BaseModel):
-    reader_id: str = Field(..., description="Must match reader_id sent in tag submissions e.g. 'GATE-START'")
-    name: str = Field(..., description="Human-readable e.g. 'Start', 'Furlong 3', 'Finish'")
-    distance_m: float = Field(..., description="Distance from start in metres")
-    is_finish: bool = Field(False, description="True for the finish line gate")
-    position_x: Optional[float] = Field(None, description="Normalised X coordinate 0.0–1.0 for TrackMap")
-    position_y: Optional[float] = Field(None, description="Normalised Y coordinate 0.0–1.0 for TrackMap")
-
-
-class HorseRegistration(BaseModel):
-    horse_id: str = Field(..., description="UHF chip EPC")
-    display_name: str
-    saddle_cloth: str
-    jockey: str = ""
-
-
-class RegisterRequest(BaseModel):
-    venue_id: str = Field(..., description="Which venue this race is at")
-    horses: list[HorseRegistration]
-
-
-class TagSubmitRequest(BaseModel):
-    tag_id: str = Field(..., description="UHF chip EPC")
-    reader_id: str = Field(..., description="Which gate fired this read")
-
-
 # ------------------------------------------------------------------ #
 # Health
 # ------------------------------------------------------------------ #
@@ -98,7 +59,6 @@ def health():
         "ok": True,
         "service": "tracksense",
         "version": "3.0.0",
-        "ws_connections": ws_manager.connection_count(),
     }
 
 
@@ -525,37 +485,37 @@ def create_venue(
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    from app.models import VenueRecord
     venue_id = req.venue_id.strip().upper()
-    result = registry.create_venue(
-        venue_id=venue_id,
-        name=req.name,
-        total_distance_m=req.total_distance_m,
-    )
-    if not result["ok"]:
-        raise HTTPException(409, result["error"])
-    # Persist to DB so GateRegistry can be restored on restart
+    if db.get(VenueRecord, venue_id):
+        raise HTTPException(409, f"Venue '{venue_id}' already exists")
     crud.upsert_venue(db, venue_id=venue_id, name=req.name, total_distance_m=req.total_distance_m)
-    return result
+    return {"ok": True, "venue_id": venue_id, "name": req.name, "total_distance_m": req.total_distance_m}
 
 
 @router.get("/venues")
-def list_venues():
-    return {"venues": registry.list_venues()}
+def list_venues(db: Session = Depends(get_db)):
+    from app.models import VenueRecord
+    venues = db.query(VenueRecord).order_by(VenueRecord.name).all()
+    return {
+        "venues": [
+            {"venue_id": v.venue_id, "name": v.name, "total_distance_m": v.total_distance_m}
+            for v in venues
+        ]
+    }
 
 
 @router.get("/venues/{venue_id}")
-def get_venue(venue_id: str):
+def get_venue(venue_id: str, db: Session = Depends(get_db)):
+    from app.models import VenueRecord
     venue_id = venue_id.upper()
-    result = registry.list_gates(venue_id)
-    if not result["ok"]:
-        raise HTTPException(404, result["error"])
-    v = registry.get_venue(venue_id)
-    assert v is not None  # list_gates already confirmed it exists
+    v = db.get(VenueRecord, venue_id)
+    if not v:
+        raise HTTPException(404, f"Venue '{venue_id}' not found")
     return {
         "venue_id": v.venue_id,
         "name": v.name,
         "total_distance_m": v.total_distance_m,
-        "gates": result["gates"],
     }
 
 
@@ -566,610 +526,9 @@ def delete_venue(
     db: Session = Depends(get_db),
 ):
     venue_id = venue_id.upper()
-    result = registry.delete_venue(venue_id)
-    if not result["ok"]:
-        raise HTTPException(404, result["error"])
-    crud.delete_venue(db, venue_id)
-    return result
-
-
-@router.post("/venues/{venue_id}/gates")
-def add_gate(
-    venue_id: str,
-    req: AddGateRequest,
-    _: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    venue_id = venue_id.upper()
-    reader_id = req.reader_id.strip().upper()
-    result = registry.add_gate(
-        venue_id=venue_id,
-        reader_id=reader_id,
-        name=req.name,
-        distance_m=req.distance_m,
-        is_finish=req.is_finish,
-    )
-    if not result["ok"]:
-        raise HTTPException(400, result["error"])
-    # Persist to DB (including optional position coordinates)
-    crud.upsert_gate(
-        db,
-        venue_id=venue_id,
-        reader_id=reader_id,
-        name=req.name,
-        distance_m=req.distance_m,
-        is_finish=req.is_finish,
-        position_x=req.position_x,
-        position_y=req.position_y,
-    )
-    return result
-
-
-@router.delete("/venues/{venue_id}/gates/{reader_id}")
-def remove_gate(
-    venue_id: str,
-    reader_id: str,
-    _: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    venue_id = venue_id.upper()
-    reader_id = reader_id.upper()
-    result = registry.remove_gate(venue_id, reader_id)
-    if not result["ok"]:
-        raise HTTPException(404, result["error"])
-    crud.delete_gate(db, venue_id, reader_id)
-    return result
-
-
-@router.get("/venues/{venue_id}/geometry")
-def get_venue_geometry(venue_id: str, db: Session = Depends(get_db)):
-    """
-    Return venue geometry for TrackMap rendering.
-    No auth required — safe to call from the frontend without a token.
-    Each gate includes optional position_x/position_y (0.0–1.0).
-    Gates missing position data have null x/y and are rendered by the
-    frontend using the oval arc-length parameterisation fallback.
-    """
-    from app.models import VenueRecord, GateRecord
-
-    venue_id = venue_id.upper()
-    venue = db.get(VenueRecord, venue_id)
-    if not venue:
+    if not crud.delete_venue(db, venue_id):
         raise HTTPException(404, f"Venue '{venue_id}' not found")
-
-    gates = (
-        db.query(GateRecord)
-        .filter_by(venue_id=venue_id)
-        .order_by(GateRecord.distance_m)
-        .all()
-    )
-
-    return {
-        "venue_id": venue.venue_id,
-        "name": venue.name,
-        "total_distance_m": venue.total_distance_m,
-        "gates": [
-            {
-                "reader_id": g.reader_id,
-                "name": g.name,
-                "distance_m": g.distance_m,
-                "is_finish": g.is_finish,
-                "position_x": g.position_x,
-                "position_y": g.position_y,
-            }
-            for g in gates
-        ],
-    }
-
-
-# ------------------------------------------------------------------ #
-# Race management
-# ------------------------------------------------------------------ #
-
-@router.post("/race/register")
-def register_horses(
-    req: RegisterRequest,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
-):
-    if not req.horses:
-        raise HTTPException(400, "Must provide at least one horse")
-
-    ids = [h.horse_id.strip().upper() for h in req.horses]
-    if len(ids) != len(set(ids)):
-        raise HTTPException(400, "Duplicate horse_id values in registration")
-
-    venue_id = req.venue_id.strip().upper()
-    if not registry.get_venue(venue_id):
-        raise HTTPException(404, f"Venue '{venue_id}' not found. Create it first via POST /venues")
-
-    entries = [
-        HorseEntry(
-            horse_id=h.horse_id.strip().upper(),
-            display_name=h.display_name,
-            saddle_cloth=h.saddle_cloth,
-            jockey=h.jockey,
-        )
-        for h in req.horses
-    ]
-
-    t = RaceTracker(
-        venue_id=venue_id,
-        on_gate_event=ws_manager.broadcast_gate_event,
-    )
-    result = t.register_horses(entries)
-    if not result["ok"]:
-        raise HTTPException(400, result["error"])
-
-    set_tracker(t)
-
-    # Fire GateSmart horse mapping for any horse that has a racing_api_horse_id
-    for entry in entries:
-        horse = crud.get_horse(db, entry.horse_id)
-        if horse and horse.racing_api_horse_id:
-            background_tasks.add_task(
-                gatesmart.post_horse_mapping,
-                epc=horse.epc,
-                horse_name=horse.name,
-                racing_api_horse_id=horse.racing_api_horse_id,
-            )
-
-    return result
-
-
-class QuickBuildRequest(BaseModel):
-    venue_id: str
-    num_horses: int = Field(..., ge=2, le=24, description="Field size — horses chosen at random")
-    distance_m: Optional[float] = Field(None, description="Race distance (metadata only in v1)")
-
-
-@router.post("/race/quick-build")
-def quick_build_race(
-    req: QuickBuildRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    One-shot race setup: pick a track + field size, draw horses at random from
-    the registry, auto-assign saddle cloths, register and arm. The user then
-    hits SIMULATE on the Live view.
-
-    Note: distance_m is recorded as metadata for display only — the simulation
-    always runs the full venue gate set (slicing gates would break the oval
-    track-map geometry). v1 limitation.
-    """
-    venue_id = req.venue_id.strip().upper()
-    venue = registry.get_venue(venue_id)
-    if not venue:
-        raise HTTPException(404, f"Venue '{venue_id}' not found.")
-    if not venue.finish_gate():
-        raise HTTPException(400, "Venue has no finish gate configured.")
-
-    pool = crud.list_horses(db, skip=0, limit=10_000)
-    if len(pool) < req.num_horses:
-        raise HTTPException(400, f"Only {len(pool)} horses in registry; need {req.num_horses}.")
-
-    field = random.sample(pool, req.num_horses)
-    entries = [
-        HorseEntry(
-            horse_id=h.epc.strip().upper(),
-            display_name=h.name,
-            saddle_cloth=str(i + 1),
-        )
-        for i, h in enumerate(field)
-    ]
-
-    t = RaceTracker(venue_id=venue_id, on_gate_event=ws_manager.broadcast_gate_event)
-    reg = t.register_horses(entries)
-    if not reg["ok"]:
-        raise HTTPException(400, reg["error"])
-    t.arm()
-    t.quick_build_distance_m = req.distance_m
-    set_tracker(t)
-
-    crud.write_audit_log(db, current_user, "quick-build", "race", venue_id,
-                         {"num_horses": req.num_horses, "distance_m": req.distance_m})
-
-    return {
-        "ok": True,
-        "venue_id": venue_id,
-        "registered": len(entries),
-        "distance_m": req.distance_m,
-        "armed": True,
-    }
-
-
-@router.post("/race/arm")
-def arm_race(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    t = get_tracker()
-    if not t:
-        raise HTTPException(400, "No race registered. POST /race/register first.")
-    result = t.arm()
-    if not result["ok"]:
-        raise HTTPException(400, result["error"])
-    crud.write_audit_log(db, current_user, "arm", "race", t.venue_id, None)
-    return result
-
-
-@router.post("/race/reset")
-def reset_race(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    t = get_tracker()
-    venue_id = t.venue_id if t else "none"
-    set_tracker(None)
-    crud.write_audit_log(db, current_user, "reset", "race", venue_id, None)
-    return {"ok": True, "reset": True}
-
-
-# Speed profiles: multipliers per gate segment
-_SIM_PROFILES = {
-    "pacer":    [0.92, 0.96, 1.02, 1.08, 1.12],
-    "closer":   [1.10, 1.05, 1.00, 0.95, 0.88],
-    "midfield": [1.00, 1.00, 1.00, 1.00, 1.00],
-}
-
-
-def _simulate_field(t, venue, horses) -> dict:
-    """
-    Drive a field of horses through the venue's gates with realistic timing,
-    in background threads. Honours the tracker's pause/stop events. Shared by
-    the race simulator and the workout simulator.
-
-    Each horse is given a starting-gate break reaction time that offsets its
-    whole timeline — a faster reaction clears the start gate sooner. Returns
-    {horse_id: reaction_ms} so callers can persist gate-break analysis.
-    """
-    gates = sorted(venue.gates, key=lambda g: g.distance_m)
-
-    def segment_times(reaction_s: float) -> list[float]:
-        mults = _SIM_PROFILES[random.choice(list(_SIM_PROFILES.keys()))]
-        ability = random.uniform(0.95, 1.05)
-        # First gate (the break) fires after the reaction delay; everything shifts.
-        times = [reaction_s]
-        cumulative = reaction_s
-        for i in range(len(gates) - 1):
-            dist = gates[i + 1].distance_m - gates[i].distance_m
-            base = dist / 25.0  # ~25 m/s ≈ 90 km/h
-            mult = mults[i % len(mults)]
-            seg = base * mult * ability + random.uniform(-0.3, 0.3)
-            cumulative += max(seg, 0.5)
-            times.append(cumulative)
-        return times
-
-    pause_ev = t._sim_pause
-    stop_ev  = t._sim_stop
-
-    def run_horse(horse, times: list[float], race_start: float):
-        for i, gate in enumerate(gates):
-            target = race_start + times[i]
-
-            # Sleep toward target in 50 ms slices, honouring pause and stop
-            while True:
-                if stop_ev.is_set():
-                    return
-                pause_ev.wait()          # blocks here while paused
-                if stop_ev.is_set():     # re-check after unblocking
-                    return
-                remaining = target - time.time()
-                if remaining <= 0:
-                    break
-                time.sleep(min(0.05, remaining))
-
-            if stop_ev.is_set():
-                return
-
-            t.submit_tag(horse.horse_id, gate.reader_id)
-            # Simulate 1–3 duplicate reads in the transit window
-            for _ in range(random.randint(1, 3)):
-                time.sleep(random.uniform(0.001, 0.008))
-                t.submit_tag(horse.horse_id, gate.reader_id)
-
-    race_start = time.time() + 0.1  # small buffer so all threads are ready
-    reactions: dict[str, int] = {}
-    threads = []
-    for horse in horses:
-        reaction_s = max(0.0, random.gauss(0.32, 0.12))
-        reactions[horse.horse_id] = int(reaction_s * 1000)
-        times = segment_times(reaction_s)
-        th = threading.Thread(target=run_horse, args=(horse, times, race_start), daemon=True)
-        threads.append(th)
-
-    for th in threads:
-        th.start()
-
-    return reactions
-
-
-@router.post("/race/simulate")
-def simulate_race(_: User = Depends(get_current_user)):
-    """
-    Arm the registered race and run a mock simulation using the registered
-    field and venue gates. Horses are assigned speed profiles randomly and
-    driven through each gate with realistic timing in background threads.
-    """
-    t = get_tracker()
-    if not t:
-        raise HTTPException(400, "No race registered. Use Race Builder first.")
-    if t.status not in ("idle", "armed"):
-        raise HTTPException(400, f"Cannot simulate in '{t.status}' state. Reset first.")
-
-    arm_result = t.arm()
-    if not arm_result["ok"]:
-        raise HTTPException(400, arm_result["error"])
-
-    venue = registry.get_venue(t.venue_id)
-    if not venue:
-        raise HTTPException(400, f"Venue '{t.venue_id}' not found in registry.")
-
-    if not venue.gates:
-        raise HTTPException(400, "Venue has no gates configured.")
-
-    horses = list(t.registered_horses.values())
-    # Note: the chosen race distance is metadata only — the field always runs
-    # the full venue gate set. The oval track animation assumes a start at
-    # distance 0, so trimming gates breaks the live interpolation.
-    reactions = _simulate_field(t, venue, horses)
-    # Stash break reactions on the tracker so they can be persisted later.
-    t.break_reactions = reactions
-
-    return {"ok": True, "simulating": True, "runners": len(horses), "gates": len(venue.gates)}
-
-
-@router.post("/race/simulate/pause")
-def pause_simulation(_: User = Depends(get_current_user)):
-    t = get_tracker()
-    if not t:
-        raise HTTPException(400, "No active race.")
-    result = t.pause()
-    if not result["ok"]:
-        raise HTTPException(400, result["error"])
-    return result
-
-
-@router.post("/race/simulate/resume")
-def resume_simulation(_: User = Depends(get_current_user)):
-    t = get_tracker()
-    if not t:
-        raise HTTPException(400, "No active race.")
-    result = t.resume()
-    if not result["ok"]:
-        raise HTTPException(400, result["error"])
-    return result
-
-
-# ------------------------------------------------------------------ #
-# Morning works — workout simulation (reuses the timing engine on its own
-# tracker so it never disturbs a registered/live race)
-# ------------------------------------------------------------------ #
-
-class WorkoutSimulateRequest(BaseModel):
-    venue_id: str
-    horse_ids: list[str] = Field(..., min_length=1, description="EPCs to send out for the work")
-    distance_m: Optional[float] = None
-    surface: Optional[str] = None
-    track_condition: Optional[str] = None
-    rider_name: Optional[str] = None
-    clocker_name: Optional[str] = None
-    timekeeper_name: Optional[str] = None
-
-
-@router.post("/workout/simulate")
-def simulate_workout(req: WorkoutSimulateRequest, db: Session = Depends(get_db),
-                     _: User = Depends(get_current_user)):
-    """
-    Run a timed morning work: send the chosen horses through the venue gates
-    on a dedicated workout tracker. Recorded splits + break reactions are kept
-    on the tracker until POST /workout/simulate/save persists them.
-    """
-    venue_id = req.venue_id.strip().upper()
-    venue = registry.get_venue(venue_id)
-    if not venue:
-        raise HTTPException(404, f"Venue '{venue_id}' not found.")
-    if not venue.gates:
-        raise HTTPException(400, "Venue has no gates configured.")
-
-    ids = [e.strip().upper() for e in req.horse_ids]
-    if len(ids) != len(set(ids)):
-        raise HTTPException(400, "Duplicate horse_id values.")
-
-    entries = []
-    for i, epc in enumerate(ids):
-        horse = crud.get_horse(db, epc)
-        entries.append(HorseEntry(
-            horse_id=epc,
-            display_name=horse.name if horse else epc,
-            saddle_cloth=str(i + 1),
-        ))
-
-    t = RaceTracker(venue_id=venue_id)
-    reg = t.register_horses(entries)
-    if not reg["ok"]:
-        raise HTTPException(400, reg["error"])
-    t.arm()
-    set_workout_tracker(t)
-
-    reactions = _simulate_field(t, venue, entries)
-    t.break_reactions = reactions
-    # Stash the clocker/rider context + distance for the save step.
-    t.workout_context = {
-        "distance_m": req.distance_m,
-        "surface": req.surface,
-        "track_condition": req.track_condition,
-        "rider_name": req.rider_name,
-        "clocker_name": req.clocker_name,
-        "timekeeper_name": req.timekeeper_name,
-    }
-
-    return {"ok": True, "simulating": True, "runners": len(entries), "gates": len(venue.gates)}
-
-
-@router.post("/workout/simulate/pause")
-def pause_workout(_: User = Depends(get_current_user)):
-    t = get_workout_tracker()
-    if not t:
-        raise HTTPException(400, "No active workout.")
-    result = t.pause()
-    if not result["ok"]:
-        raise HTTPException(400, result["error"])
-    return result
-
-
-@router.post("/workout/simulate/resume")
-def resume_workout(_: User = Depends(get_current_user)):
-    t = get_workout_tracker()
-    if not t:
-        raise HTTPException(400, "No active workout.")
-    result = t.resume()
-    if not result["ok"]:
-        raise HTTPException(400, result["error"])
-    return result
-
-
-@router.get("/workout/status")
-def workout_status():
-    t = get_workout_tracker()
-    if not t:
-        return {"status": "idle", "message": "No active workout"}
-    return t.get_status()
-
-
-@router.get("/workout/state")
-def workout_state():
-    t = get_workout_tracker()
-    if not t:
-        return {"status": "idle", "message": "No active workout"}
-    return t.get_race_state()
-
-
-@router.post("/workout/simulate/save")
-def save_workout(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    """
-    Persist the finished workout sim as a WorkoutRecord per horse, with the
-    recorded sectional splits and the rider/clocker attribution supplied when
-    the work was started. Idempotent-ish: each call writes fresh records.
-    """
-    t = get_workout_tracker()
-    if not t:
-        raise HTTPException(400, "No active workout to save.")
-    state = t.get_race_state()
-    ctx = getattr(t, "workout_context", {}) or {}
-    reactions = getattr(t, "break_reactions", {}) or {}
-    workout_date = datetime.now(timezone.utc).date().isoformat()
-
-    saved = []
-    for horse_data in state.get("horses", []):
-        epc = horse_data["horse_id"]
-        if not crud.get_horse(db, epc):
-            continue
-        events = horse_data.get("events", [])
-        sectionals = horse_data.get("sectionals", [])
-        duration_ms = events[-1]["elapsed_ms"] if events else None
-        # Distance: explicit request value, else the furthest gate reached.
-        distance_m = ctx.get("distance_m")
-        if distance_m is None and events:
-            distance_m = max(e["distance_m"] for e in events)
-        result = crud.add_workout(
-            db,
-            epc=epc,
-            workout_date=workout_date,
-            distance_m=float(distance_m or 0.0),
-            surface=ctx.get("surface"),
-            duration_ms=duration_ms,
-            track_condition=ctx.get("track_condition"),
-            trainer_name=None,
-            rider_name=ctx.get("rider_name"),
-            clocker_name=ctx.get("clocker_name"),
-            timekeeper_name=ctx.get("timekeeper_name"),
-            splits_json=json.dumps(sectionals) if sectionals else None,
-            source="sim",
-            notes="Timed work (simulated)",
-        )
-        # Also record the gate break from this work (race_id is None for works).
-        reaction_ms = reactions.get(epc)
-        if reaction_ms is not None:
-            crud.add_break_record(db, horse_epc=epc, reaction_ms=reaction_ms,
-                                  race_id=None, source="sim")
-        if result.get("ok"):
-            saved.append({"epc": epc, "workout_id": result["id"], "duration_ms": duration_ms})
-
-    return {"ok": True, "saved": saved, "count": len(saved)}
-
-
-# ------------------------------------------------------------------ #
-# Tag submission — hot path
-# ------------------------------------------------------------------ #
-
-@router.post("/tags/submit")
-def submit_tag(req: TagSubmitRequest, _: User = Depends(get_current_user)):
-    t = get_tracker()
-    if not t:
-        return {"ok": False, "reason": "no_active_race"}
-    return t.submit_tag(req.tag_id, req.reader_id)
-
-
-# ------------------------------------------------------------------ #
-# Race reads
-# ------------------------------------------------------------------ #
-
-@router.get("/race/status")
-def race_status():
-    t = get_tracker()
-    if not t:
-        return {"status": "idle", "message": "No active race"}
-    return t.get_status()
-
-
-@router.get("/race/finish-order")
-def finish_order():
-    t = get_tracker()
-    if not t:
-        return {"status": "idle", "results": []}
-    return t.get_finish_order()
-
-
-@router.get("/race/state")
-def race_state():
-    """
-    Full race state — all horses, all gate events, all sectional times and speeds.
-    Primary data endpoint for Phase 2.
-    """
-    t = get_tracker()
-    if not t:
-        return {"status": "idle", "message": "No active race"}
-    return t.get_race_state()
-
-
-# ------------------------------------------------------------------ #
-# WebSocket — live race feed
-# ------------------------------------------------------------------ #
-
-@router.websocket("/ws/race")
-async def race_feed(websocket: WebSocket):
-    """
-    Connect to receive live gate events as horses pass through each gate.
-
-    Message format:
-    {
-      "type": "gate_event",
-      "data": {
-        "tag_id": "...",
-        "display_name": "Thunderstrike",
-        "gate_name": "Furlong 3",
-        "distance_m": 603.0,
-        "elapsed_ms": 34521,
-        "elapsed_str": "0:34.521",
-        "is_finish": false,
-        ...
-      }
-    }
-    """
-    ws_manager.set_loop(asyncio.get_event_loop())
-    await ws_manager.connect(websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
+    return {"ok": True, "deleted": venue_id}
 
 
 # ------------------------------------------------------------------ #
@@ -1351,14 +710,6 @@ def horse_form(epc: str, n: int = 5, db: Session = Depends(get_db)):
     return {"epc": epc, "form": crud.get_form_guide(db, epc, n=n)}
 
 
-@router.get("/horses/{epc}/sectionals")
-def horse_sectionals(epc: str, db: Session = Depends(get_db)):
-    epc = epc.strip().upper()
-    if not crud.get_horse(db, epc):
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    return {"epc": epc, "sectional_averages": crud.get_sectional_averages(db, epc)}
-
-
 @router.get("/horses/{epc}/vet")
 def get_vet_records(epc: str, db: Session = Depends(get_db)):
     epc = epc.strip().upper()
@@ -1490,70 +841,6 @@ def get_race_results(race_id: int, db: Session = Depends(get_db), _auth=Depends(
     }
 
 
-@router.post("/races/{race_id}/persist")
-def persist_race(
-    race_id: int,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Persist the active in-memory tracker's results to the database race record.
-    The race record must already exist (created via POST /races).
-    Horses must already exist in the horses table (POST /horses).
-    This operation is idempotent — safe to call multiple times.
-
-    After a successful persist, fires the GateSmart race webhook as a
-    background task so the HTTP response is not blocked.
-    """
-    t = get_tracker()
-    if not t:
-        raise HTTPException(400, "No active race tracker. Register a race first.")
-    tracker_state = t.get_race_state()
-    result = crud.persist_race_results(db, race_id, tracker_state)
-    if not result["ok"]:
-        raise HTTPException(404, result["error"])
-
-    # Persist starting-gate break analysis captured during the simulation.
-    reactions = getattr(t, "break_reactions", {}) or {}
-    breaks_persisted = 0
-    for horse_data in tracker_state.get("horses", []):
-        epc = horse_data["horse_id"]
-        reaction_ms = reactions.get(epc)
-        if reaction_ms is None:
-            continue
-        br = crud.add_break_record(db, horse_epc=epc, reaction_ms=reaction_ms,
-                                   race_id=race_id, source="race")
-        if br.get("ok") and not br.get("duplicate"):
-            breaks_persisted += 1
-    result["breaks_persisted"] = breaks_persisted
-
-    # Build and schedule GateSmart webhook without blocking the response
-    race = crud.get_race(db, race_id)
-    if race:
-        venue_name = race.venue.name if race.venue else race.venue_id
-        distance_furlongs = round(race.distance_m / 201.168, 4)
-    else:
-        venue_name = "Unknown"
-        distance_furlongs = 0.0
-
-    completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    gs_results = gatesmart.build_gatesmart_results(tracker_state)
-    payload = gatesmart.build_race_webhook_payload(
-        race_id=str(race_id),
-        venue_name=venue_name,
-        race_name=race.name if race and race.name else f"Race {race_id}",
-        distance_furlongs=distance_furlongs,
-        completed_at=completed_at,
-        results=gs_results,
-    )
-    background_tasks.add_task(gatesmart.fire_race_webhook, payload)
-    crud.write_audit_log(db, current_user, "persist", "race", str(race_id),
-                         {"persisted": result.get("persisted")})
-
-    return result
-
-
 # ------------------------------------------------------------------ #
 # Phase 5A — Welfare & operational workflows
 # ------------------------------------------------------------------ #
@@ -1603,30 +890,6 @@ def get_workouts(epc: str, db: Session = Depends(get_db)):
                 "splits_json": r.splits_json,
                 "source": r.source,
                 "notes": r.notes,
-            }
-            for r in records
-        ],
-    }
-
-
-@router.get("/horses/{epc}/breaks")
-def get_breaks(epc: str, db: Session = Depends(get_db)):
-    """Starting-gate break history for a horse — reaction time, verdict, baseline delta."""
-    epc = epc.strip().upper()
-    if not crud.get_horse(db, epc):
-        raise HTTPException(404, f"Horse '{epc}' not found")
-    records = crud.get_breaks(db, epc)
-    return {
-        "epc": epc,
-        "breaks": [
-            {
-                "id": r.id,
-                "race_id": r.race_id,
-                "reaction_ms": r.reaction_ms,
-                "verdict": r.verdict,
-                "baseline_delta_ms": r.baseline_delta_ms,
-                "recorded_at": r.recorded_at.isoformat() if r.recorded_at else None,
-                "source": r.source,
             }
             for r in records
         ],
@@ -1724,47 +987,6 @@ def get_test_barn_records(epc: str, db: Session = Depends(get_db)):
             }
             for r in records
         ],
-    }
-
-
-# ------------------------------------------------------------------ #
-# Track path (Item 1)
-# ------------------------------------------------------------------ #
-
-class TrackPathPointInput(BaseModel):
-    x: float = Field(..., ge=0.0, le=1.0)
-    y: float = Field(..., ge=0.0, le=1.0)
-
-
-class SetTrackPathRequest(BaseModel):
-    points: list[TrackPathPointInput] = Field(..., min_length=3)
-
-
-@router.post("/venues/{venue_id}/track-path")
-def set_track_path(
-    venue_id: str,
-    req: SetTrackPathRequest,
-    _: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    venue_id = venue_id.upper()
-    result = crud.upsert_track_path(db, venue_id, [{"x": p.x, "y": p.y} for p in req.points])
-    if not result["ok"]:
-        raise HTTPException(404, result["error"])
-    return result
-
-
-@router.get("/venues/{venue_id}/track-path")
-def get_track_path(venue_id: str, db: Session = Depends(get_db)):
-    venue_id = venue_id.upper()
-    from app.models import VenueRecord
-    if not db.get(VenueRecord, venue_id):
-        raise HTTPException(404, f"Venue '{venue_id}' not found")
-    points = crud.get_track_path(db, venue_id)
-    return {
-        "venue_id": venue_id,
-        "count": len(points),
-        "points": [{"sequence": p.sequence, "x": p.x, "y": p.y} for p in points],
     }
 
 

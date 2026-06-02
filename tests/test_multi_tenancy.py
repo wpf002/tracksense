@@ -12,8 +12,6 @@ from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 
 from app.server import app
-from app.gate_registry import registry
-from app.race_tracker import set_tracker
 from app.routes import get_current_user
 from app.database import get_db, Base
 from app.models import User, Tenant, Horse
@@ -62,14 +60,10 @@ def super_admin_client(db_session):
 
     app.dependency_overrides[get_current_user] = lambda: _super_admin
     app.dependency_overrides[get_db] = override_db
-    registry._venues.clear()
-    set_tracker(None)
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c, db_session
 
-    registry._venues.clear()
-    set_tracker(None)
     app.dependency_overrides.pop(get_current_user, None)
     app.dependency_overrides.pop(get_db, None)
 
@@ -81,14 +75,10 @@ def tenant_admin_client(db_session):
 
     app.dependency_overrides[get_current_user] = lambda: _tenant_admin
     app.dependency_overrides[get_db] = override_db
-    registry._venues.clear()
-    set_tracker(None)
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c, db_session
 
-    registry._venues.clear()
-    set_tracker(None)
     app.dependency_overrides.pop(get_current_user, None)
     app.dependency_overrides.pop(get_db, None)
 

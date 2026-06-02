@@ -15,9 +15,6 @@ export const getHorseCareer = (epc) =>
 export const getHorseForm = (epc) =>
   client.get(`/horses/${epc}/form`).then((r) => r.data.form)
 
-export const getHorseSectionals = (epc) =>
-  client.get(`/horses/${epc}/sectionals`).then((r) => r.data.sectional_averages)
-
 export const getHorseVet = (epc) =>
   client.get(`/horses/${epc}/vet`).then((r) => r.data.vet_records)
 
@@ -32,9 +29,6 @@ export const getHorseWorkouts = (epc) =>
 
 export const addWorkout = (epc, body) =>
   client.post(`/horses/${epc}/workouts`, body).then((r) => r.data)
-
-export const getHorseBreaks = (epc) =>
-  client.get(`/horses/${epc}/breaks`).then((r) => r.data.breaks)
 
 export const getHorseCheckins = (epc) =>
   client.get(`/horses/${epc}/checkins`).then((r) => r.data.checkins)
