@@ -45,17 +45,21 @@ export default function RaceCardBuilder() {
   return (
     <div className="p-6">
       <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase mb-6">
-        Race Builder
+        Add Race <span className="text-text-muted text-sm normal-case">(Admin)</span>
       </h1>
 
       <div className="flex justify-center pt-4">
         <div className="border border-border bg-surface p-8 w-full max-w-2xl">
           <h2 className="text-lg font-bold uppercase tracking-widest text-text-primary mb-1">
-            New Race Card
+            Add a Race
           </h2>
+          <p className="text-xs text-text-muted font-timing tracking-wide mb-2">
+            Admin/setup tool. In production, race cards and entries are <span className="text-text-primary">ingested</span>
+            {' '}from the track's race office (Equibase/FinishLynx) and surface automatically on
+            each horse's page — owners and trainers don't author races here.
+          </p>
           <p className="text-xs text-text-muted font-timing tracking-wide mb-6">
-            Create a race-day card. Entry/scratch management and FinishLynx results
-            ingestion arrive with the Phase 5 Race Day Operations module.
+            Manual entry is for setup, demos, and tracks running their own card.
           </p>
 
           <div className="flex flex-col gap-5">

@@ -23,6 +23,7 @@ function StatusBadge({ status }) {
 }
 
 export default function LiveRace() {
+  const role = localStorage.getItem('ts_role') ?? ''
   const { data: races = [], isLoading, error } = useQuery({
     queryKey: ['races'],
     queryFn: listRaces,
@@ -76,17 +77,21 @@ export default function LiveRace() {
         <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase">
           Race Day
         </h1>
-        <Link
-          to="/builder"
-          className="px-4 py-1.5 text-sm font-semibold tracking-widest uppercase border border-accent text-accent hover:bg-amber-950 transition-colors"
-        >
-          + New Race Card
-        </Link>
+        {role === 'admin' && (
+          <Link
+            to="/builder"
+            className="px-4 py-1.5 text-sm font-semibold tracking-widest uppercase border border-accent text-accent hover:bg-amber-950 transition-colors"
+          >
+            + Add Race
+          </Link>
+        )}
       </div>
 
       <p className="text-xs text-text-muted font-timing tracking-wide mb-4">
-        Race-day operations board. Official timing is provided by FinishLynx; results
-        are ingested into TrackSense (Phase 5).
+        Race-day operations board. Entries and official results are ingested from the
+        track's race office and FinishLynx — races and your horses' runs surface here
+        automatically (Phase 5). Official timing is FinishLynx's; TrackSense records the
+        operational and compliance trail around it.
       </p>
 
       <div className="border border-border bg-surface">

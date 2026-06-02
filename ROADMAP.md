@@ -254,6 +254,35 @@ Make the product sellable.
 
 ---
 
+## Key Design Decisions / Open Questions
+
+**Entries & results are INGESTED, not authored (source-of-truth discipline).**
+The product's value is aggregating *authoritative* data onto a single pane of glass
+keyed to the horse's chip — not re-typing data that already exists elsewhere. In US
+thoroughbred racing the **track's race office** writes the card and takes entries
+(the racing secretary / InCompass), and **Equibase** is the official entry/result
+data provider. So:
+
+- An owner/trainer should **never** author a race card. Their horses' upcoming runs
+  must appear **automatically** (ingested from the track race office / Equibase),
+  surfaced on the horse page and a "my horses this week" view. Re-entering races by
+  hand is duplicate data entry and the opposite of single-pane-of-glass.
+- Manual race-card creation is a **track-admin / setup / demo** function only. In the
+  app today the "Add Race" Builder is therefore admin-gated and clearly labelled as
+  such — it is scaffolding, not the owner/trainer surface.
+- **Open question to resolve before Phase 4/5:** do we *mirror* entries/results from a
+  feed (Equibase/track) as the source of truth, or *author* them in TrackSense? This
+  changes the data model and the entire Phase 5 UX. Validate with a racing
+  secretary / compliance officer (pull the Phase 6 expert call forward) before
+  building the ingestion vs authoring path.
+
+**Two personas, two surfaces.** Track / racing-secretary (authors cards, runs race
+day) vs owner/trainer (consumes — identity, works, treatments, compliance, and
+ingested race participation). Keep these distinct; don't show authoring tools to the
+consuming persona.
+
+---
+
 ## Development Principles
 
 - **Backend-first.** Every feature starts with a tested API endpoint.
