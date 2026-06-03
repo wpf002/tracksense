@@ -876,17 +876,29 @@ def get_race_results(race_id: int, db: Session = Depends(get_db), _auth=Depends(
     race = crud.get_race(db, race_id)
     if not race:
         raise HTTPException(404, f"Race {race_id} not found")
+    # Join horse names and saddle cloths for readable results
+    entries_by_chip = {e.horse_chip_id: e for e in race.entries}
+    results_out = []
+    for r in sorted(race.results, key=lambda r: r.finish_position):
+        horse = crud.get_horse(db, r.horse_chip_id)
+        entry = entries_by_chip.get(r.horse_chip_id)
+        results_out.append({
+            "horse_chip_id": r.horse_chip_id,
+            "horse_name": horse.name if horse else None,
+            "saddle_cloth": entry.saddle_cloth if entry else None,
+            "jockey": entry.jockey if entry else None,
+            "finish_position": r.finish_position,
+            "elapsed_ms": r.elapsed_ms,
+        })
     return {
         "race_id": race.id,
+        "name": race.name,
+        "venue_id": race.venue_id,
+        "race_date": race.race_date.isoformat() if race.race_date else None,
+        "distance_m": race.distance_m,
+        "surface": race.surface,
         "status": race.status,
-        "results": [
-            {
-                "horse_chip_id": r.horse_chip_id,
-                "finish_position": r.finish_position,
-                "elapsed_ms": r.elapsed_ms,
-            }
-            for r in sorted(race.results, key=lambda r: r.finish_position)
-        ],
+        "results": results_out,
     }
 
 

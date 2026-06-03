@@ -125,7 +125,7 @@ export default function TrainingCenter() {
             Training Center
           </h1>
           <p className="text-xs text-text-muted font-timing mt-0.5">
-            Daily roster — {roster.length} horse{roster.length !== 1 ? 's' : ''}
+            Daily roster — {roster.length} horse{roster.length !== 1 ? 's' : ''} · workouts, vet checks, treatments between races
           </p>
         </div>
         <button
@@ -176,6 +176,7 @@ export default function TrainingCenter() {
               <p className="text-xs text-text-muted font-timing">
                 Add horses via <Link to="/horses" className="text-accent hover:underline">Horses</Link> then
                 assign a trainer to see them here.
+                Race entries are managed from the <Link to="/live" className="text-accent hover:underline">Race Day</Link> console.
               </p>
             )}
           </div>

@@ -230,9 +230,29 @@ export default function LiveRace() {
     refetchInterval: 10000,
   })
 
+  // Group races: active + pending first; finished grouped by date (today, yesterday, older)
+  const today     = new Date().toDateString()
+  const yesterday = new Date(Date.now() - 86400000).toDateString()
+
   const activeRaces   = races.filter(r => r.status === 'active')
   const pendingRaces  = races.filter(r => r.status === 'pending')
-  const finishedRaces = races.filter(r => r.status === 'finished')
+  const finishedToday = races.filter(r => r.status === 'finished' &&
+    r.race_date && new Date(r.race_date).toDateString() === today)
+  const finishedYesterday = races.filter(r => r.status === 'finished' &&
+    r.race_date && new Date(r.race_date).toDateString() === yesterday)
+  const finishedOlder = races.filter(r => r.status === 'finished' &&
+    r.race_date && new Date(r.race_date).toDateString() !== today &&
+    new Date(r.race_date).toDateString() !== yesterday)
+
+  // Collapse older finished races by default
+  const [showOlder, setShowOlder] = useState(false)
+
+  const sections = [
+    { label: 'Active', items: activeRaces },
+    { label: 'Pending', items: pendingRaces },
+    { label: `Today's Races — ${new Date().toLocaleDateString(undefined, { weekday:'long', month:'short', day:'numeric' })}`, items: finishedToday },
+    { label: 'Yesterday', items: finishedYesterday },
+  ]
 
   return (
     <div className="p-6">
@@ -264,11 +284,7 @@ export default function LiveRace() {
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {[
-            { label: 'Active', items: activeRaces },
-            { label: 'Pending', items: pendingRaces },
-            { label: 'Finished', items: finishedRaces },
-          ].map(({ label, items }) => items.length > 0 && (
+          {sections.map(({ label, items }) => items.length > 0 && (
             <div key={label}>
               <p className="text-[10px] uppercase tracking-widest text-text-muted mb-2">{label}</p>
               <div className="flex flex-col gap-2">
@@ -308,6 +324,51 @@ export default function LiveRace() {
               </div>
             </div>
           ))}
+
+          {/* Older finished races — collapsed by default */}
+          {finishedOlder.length > 0 && (
+            <div>
+              <button
+                onClick={() => setShowOlder(o => !o)}
+                className="text-[10px] uppercase tracking-widest text-text-muted hover:text-accent flex items-center gap-2 mb-2"
+              >
+                <span>{showOlder ? '▲' : '▼'}</span>
+                <span>Older Races ({finishedOlder.length})</span>
+              </button>
+              {showOlder && (
+                <div className="flex flex-col gap-2">
+                  {finishedOlder.map(race => (
+                    <div key={race.race_id} className="border border-border bg-surface">
+                      <button
+                        className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-surface-2 transition-colors"
+                        onClick={() => setSelectedId(selectedId === race.race_id ? null : race.race_id)}
+                      >
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <StatusBadge status={race.status} />
+                          <span className="font-medium text-text-primary">{race.name || `Race ${race.race_id}`}</span>
+                          <span className="font-timing text-xs text-accent">{race.venue_id}</span>
+                          <span className="font-timing text-xs text-text-muted">{race.distance_m}m</span>
+                          {race.race_date && (
+                            <span className="font-timing text-xs text-text-muted">
+                              {new Date(race.race_date).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-text-muted text-xs font-timing ml-3">
+                          {selectedId === race.race_id ? '▲' : '▼'}
+                        </span>
+                      </button>
+                      {selectedId === race.race_id && (
+                        <div className="px-4 pb-4">
+                          <RaceOpsPanel race={race} onClose={() => setSelectedId(null)} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

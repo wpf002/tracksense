@@ -39,11 +39,11 @@ export default function Shell() {
         <nav className="flex flex-col gap-0.5 py-4 flex-1">
           <NavLink to="/live">Race Day</NavLink>
           <NavLink to="/training">Training Center</NavLink>
-          <NavLink to="/results">Results</NavLink>
           <NavLink to="/horses">Horses</NavLink>
-          <NavLink to="/mobile/checkin">Quick Check-In</NavLink>
+          <NavLink to="/mobile/checkin">Check-In</NavLink>
+          <NavLink to="/results">Results</NavLink>
           {(role === 'admin' || role === 'compliance') && (
-            <NavLink to="/compliance">HISA Compliance</NavLink>
+            <NavLink to="/compliance">Compliance</NavLink>
           )}
           {role === 'admin' && <NavLink to="/builder">Add Race (Admin)</NavLink>}
 
