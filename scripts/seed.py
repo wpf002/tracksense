@@ -33,7 +33,12 @@ from app.models import (
     VenueRecord,
     Race, RaceEntry, RaceResult,
     WorkoutRecord, CheckInRecord, TestBarnRecord,
+    TreatmentRecord, VetCheckRecord, StewardsRuling,
+    SurfaceConditionLog, HISASubmission,
+    ScratchRecord,
 )
+from app import hisa_builder
+import json
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -630,6 +635,395 @@ def seed_test_barn(session, race_records: list) -> int:
 
 
 # ------------------------------------------------------------------ #
+# Phase 3–5 demo data: treatments, vet checks, rulings, surface,
+# HISA submissions, and today's race card narrative
+# ------------------------------------------------------------------ #
+
+DEMO_TREATMENTS = [
+    # Regular NSAID use — common, not prohibited
+    {"horse_idx": 0, "days_ago": 3, "substance": "Phenylbutazone (Bute)", "dose": "2 g oral", "route": "oral",     "withdrawal": 24, "vet": "Dr. Sarah Chen",   "by": "Dr. Sarah Chen",   "prohibited": False, "notes": "Pre-workout soreness management"},
+    {"horse_idx": 1, "days_ago": 5, "substance": "Phenylbutazone (Bute)", "dose": "4.4 mg/kg IV", "route": "IV",   "withdrawal": 48, "vet": "Dr. Marcus Webb",  "by": "Dr. Marcus Webb",  "prohibited": False, "notes": "Post-workout treatment, cleared for race"},
+    {"horse_idx": 2, "days_ago": 1, "substance": "Furosemide (Lasix)",    "dose": "250 mg IV",    "route": "IV",   "withdrawal": 24, "vet": "Dr. Priya Nair",   "by": "Dr. Priya Nair",   "prohibited": False, "notes": "Race-day Lasix — approved HISA exemption"},
+    {"horse_idx": 4, "days_ago": 7, "substance": "Omeprazole",            "dose": "4 mg/kg oral", "route": "oral", "withdrawal": 0,  "vet": "Dr. Sarah Chen",   "by": "Trainer",          "prohibited": False, "notes": "Gastric ulcer prevention, routine"},
+    {"horse_idx": 6, "days_ago": 2, "substance": "Triamcinolone",         "dose": "12 mg IA",     "route": "IA",   "withdrawal": 0,  "vet": "Dr. Marcus Webb",  "by": "Dr. Marcus Webb",  "prohibited": False, "notes": "Right hock joint injection — cleared by vet"},
+    {"horse_idx": 9, "days_ago": 4, "substance": "Dexamethasone",         "dose": "20 mg IV",     "route": "IV",   "withdrawal": 48, "vet": "Dr. Priya Nair",   "by": "Dr. Priya Nair",   "prohibited": False, "notes": "Inflammatory response post-workout"},
+]
+
+DEMO_VET_CHECKS = [
+    # Routine morning checks — most cleared, one flagged
+    {"horse_idx": 0,  "days_ago": 0, "check_type": "routine",      "outcome": "cleared",    "vet": "Dr. Sarah Chen",  "notes": "Good movement, sound on all four"},
+    {"horse_idx": 1,  "days_ago": 0, "check_type": "routine",      "outcome": "cleared",    "vet": "Dr. Sarah Chen",  "notes": "Bright and alert, normal vitals"},
+    {"horse_idx": 2,  "days_ago": 0, "check_type": "pre_shipment", "outcome": "cleared",    "vet": "Dr. Marcus Webb", "notes": "Cleared for transport to Churchill Downs"},
+    {"horse_idx": 3,  "days_ago": 0, "check_type": "lameness",     "outcome": "restricted", "vet": "Dr. Marcus Webb", "notes": "Grade 1 left fore lameness detected. Scratched from Race 3 pending reassessment. Re-check scheduled tomorrow morning."},
+    {"horse_idx": 4,  "days_ago": 0, "check_type": "routine",      "outcome": "cleared",    "vet": "Dr. Priya Nair",  "notes": "Sound, strong workout Monday. Ready to run."},
+    {"horse_idx": 5,  "days_ago": 0, "check_type": "routine",      "outcome": "cleared",    "vet": "Dr. Priya Nair",  "notes": "Normal. No concerns."},
+    {"horse_idx": 6,  "days_ago": 1, "check_type": "routine",      "outcome": "cleared",    "vet": "Dr. Sarah Chen",  "notes": "Post-injection check — normal response, moving well"},
+    {"horse_idx": 7,  "days_ago": 0, "check_type": "routine",      "outcome": "cleared",    "vet": "Dr. Marcus Webb", "notes": "Fit to run"},
+    {"horse_idx": 10, "days_ago": 0, "check_type": "routine",      "outcome": "cleared",    "vet": "Dr. Priya Nair",  "notes": "Ready"},
+    {"horse_idx": 11, "days_ago": 0, "check_type": "routine",      "outcome": "cleared",    "vet": "Dr. Sarah Chen",  "notes": "Sound, no issues"},
+]
+
+
+def seed_treatments(session, today: date) -> int:
+    """Seed ADMC treatment records for the Phase 3–5 demo."""
+    total = 0
+    for t in DEMO_TREATMENTS:
+        h = HORSES[t["horse_idx"]]
+        treatment_date = (today - timedelta(days=t["days_ago"])).isoformat()
+        session.add(TreatmentRecord(
+            horse_chip_id=h["chip_id"],
+            treatment_date=treatment_date,
+            substance=t["substance"],
+            dose=t["dose"],
+            route=t["route"],
+            withdrawal_time_hours=t["withdrawal"],
+            prescribed_by=t["vet"],
+            administered_by=t["by"],
+            is_prohibited=t["prohibited"],
+            notes=t["notes"],
+        ))
+        total += 1
+    session.commit()
+    return total
+
+
+def seed_vet_checks(session, today: date) -> int:
+    """Seed structured vet check records for the Training Center demo."""
+    total = 0
+    for v in DEMO_VET_CHECKS:
+        h = HORSES[v["horse_idx"]]
+        check_date = (today - timedelta(days=v["days_ago"])).isoformat()
+        session.add(VetCheckRecord(
+            horse_chip_id=h["chip_id"],
+            check_date=check_date,
+            check_type=v["check_type"],
+            outcome=v["outcome"],
+            vet_name=v["vet"],
+            notes=v["notes"],
+        ))
+        total += 1
+    session.commit()
+    return total
+
+
+def seed_demo_race_day(session, today: date) -> dict:
+    """
+    Seed today's Churchill Downs race card — the flagship demo narrative.
+
+    Race 1 (FINISHED): The Bluegrass Stakes — 8 runners, results in.
+    Race 2 (ACTIVE):   The Churchill Sprint — 6 runners, currently running.
+    Race 3 (PENDING):  The Louisville Turf — 6 entered, 1 scratch (vet).
+    Race 4 (PENDING):  The Kentucky Classic — 7 runners, post time 5pm.
+
+    Demonstrates: entries with jockeys, scratch with HISA doc, results
+    ingestion, race lifecycle, pre-race check-ins.
+    """
+    now = datetime.combine(today, time(12, 0))
+
+    # Race 1 — FINISHED (ran at noon)
+    r1 = Race(venue_id="CHURCHILL", name="The Bluegrass Stakes",
+              race_date=datetime.combine(today, time(12, 0)),
+              distance_m=1800.0, surface="Dirt", conditions="Grade II Stakes — 4yo+", status="finished")
+    session.add(r1)
+    session.flush()
+
+    r1_field = [
+        ("985112000000001", "Secretariat",       "1", "R. Bejarano"),
+        ("985112000000005", "American Pharoah",  "2", "I. Ortiz Jr."),
+        ("985112000000011", "Arrogate",          "3", "J. Castellano"),
+        ("985112000000013", "Curlin",            "4", "L. Saez"),
+        ("985112000000015", "California Chrome", "5", "F. Prat"),
+        ("985112000000016", "Gun Runner",        "6", "J. Velazquez"),
+        ("985112000000024", "Accelerate",        "7", "M. Smith"),
+        ("985112000000025", "McKinzie",          "8", "T. Gaffalione"),
+    ]
+    # Finish order: Secretariat wins, tight margin
+    finish_times = [98400, 98900, 99200, 99800, 100100, 100500, 101000, 102200]
+    for i, (chip, name, cloth, jockey) in enumerate(r1_field):
+        session.add(RaceEntry(race_id=r1.id, horse_chip_id=chip, saddle_cloth=cloth, jockey=jockey))
+        session.add(RaceResult(race_id=r1.id, horse_chip_id=chip,
+                               finish_position=i+1, elapsed_ms=finish_times[i]))
+    session.commit()
+
+    # Race 2 — ACTIVE (currently running, 2pm post)
+    r2 = Race(venue_id="CHURCHILL", name="The Churchill Sprint",
+              race_date=datetime.combine(today, time(14, 0)),
+              distance_m=1200.0, surface="Dirt", conditions="Allowance — 3yo", status="active")
+    session.add(r2)
+    session.flush()
+
+    r2_field = [
+        ("985112000000006", "Justify",        "1", "J. Castellano"),
+        ("985112000000007", "Zenyatta",        "2", "M. Smith"),
+        ("985112000000012", "Flightline",      "3", "F. Prat"),
+        ("985112000000014", "Rachel Alexandra","4", "I. Ortiz Jr."),
+        ("985112000000017", "Beholder",        "5", "J. Velazquez"),
+        ("985112000000018", "Songbird",        "6", "L. Saez"),
+    ]
+    for chip, name, cloth, jockey in r2_field:
+        session.add(RaceEntry(race_id=r2.id, horse_chip_id=chip, saddle_cloth=cloth, jockey=jockey))
+    session.commit()
+
+    # Race 3 — PENDING with a late scratch (Black Caviar — vet flagged)
+    r3 = Race(venue_id="CHURCHILL", name="The Louisville Turf",
+              race_date=datetime.combine(today, time(15, 30)),
+              distance_m=1600.0, surface="Turf", conditions="Stakes — 4yo+ turf", status="pending")
+    session.add(r3)
+    session.flush()
+
+    r3_field_original = [
+        ("985112000000002", "Winx",             "1", "H. Bowman"),
+        ("985112000000003", "Frankel",          "2", "T. Queally"),
+        ("985112000000004", "Black Caviar",     "3", "L. Nolen"),   # will be scratched
+        ("985112000000008", "Enable",           "4", "F. Dettori"),
+        ("985112000000009", "Sea The Stars",    "5", "M. Kinane"),
+        ("985112000000019", "Golden Sixty",     "6", "Z. Purton"),
+    ]
+    # Add all entries first
+    for chip, name, cloth, jockey in r3_field_original:
+        session.add(RaceEntry(race_id=r3.id, horse_chip_id=chip, saddle_cloth=cloth, jockey=jockey))
+    session.flush()
+
+    # Scratch Black Caviar — vet-flagged (lameness this morning)
+    scratched_chip = "985112000000004"
+    entry_to_scratch = session.query(RaceEntry).filter_by(
+        race_id=r3.id, horse_chip_id=scratched_chip).first()
+    if entry_to_scratch:
+        session.delete(entry_to_scratch)
+    scratch = ScratchRecord(
+        race_id=r3.id,
+        horse_chip_id=scratched_chip,
+        scratch_type="veterinary",
+        declared_by="Dr. Marcus Webb",
+        reason="Grade 1 left fore lameness detected at morning inspection. Horse does not meet fitness criteria.",
+        declared_at=datetime.combine(today, time(8, 45)),
+    )
+    session.add(scratch)
+    session.commit()
+
+    # Auto HISA scratch submission
+    payload = hisa_builder.build_scratch_submission(scratch,
+        horse=session.get(Horse, scratched_chip),
+        race=r3)
+    session.add(HISASubmission(
+        rule_category="SCRATCH",
+        status="pending",
+        source_record_type="ScratchRecord",
+        source_record_id=scratch.id,
+        horse_chip_id=scratched_chip,
+        payload_json=json.dumps(payload),
+    ))
+    session.commit()
+
+    # Race 4 — PENDING (5pm post)
+    r4 = Race(venue_id="CHURCHILL", name="The Kentucky Classic",
+              race_date=datetime.combine(today, time(17, 0)),
+              distance_m=2012.0, surface="Dirt", conditions="Grade I — 4yo+ route",
+              status="pending")
+    session.add(r4)
+    session.flush()
+
+    r4_field = [
+        ("985112000000010", "Deep Impact",       "1", "C. Soumillon"),
+        ("985112000000020", "Equinox",           "2", "Y. Kawada"),
+        ("985112000000021", "Galileo",           "3", "M. Kinane"),
+        ("985112000000022", "Orb",               "4", "J. Rosario"),
+        ("985112000000026", "Vino Rosso",        "5", "J. Castellano"),
+        ("985112000000027", "Essential Quality", "6", "L. Saez"),
+        ("985112000000028", "Tapit Trice",       "7", "J. Velazquez"),
+    ]
+    for chip, name, cloth, jockey in r4_field:
+        session.add(RaceEntry(race_id=r4.id, horse_chip_id=chip, saddle_cloth=cloth, jockey=jockey))
+    session.commit()
+
+    return {"race_ids": [r1.id, r2.id, r3.id, r4.id],
+            "race_names": ["Bluegrass Stakes", "Churchill Sprint", "Louisville Turf", "Kentucky Classic"]}
+
+
+def seed_surface_conditions(session, today: date) -> int:
+    """Daily track condition logs for Churchill Downs — required for HISA Rule 2151/2154."""
+    total = 0
+    conditions = [
+        (0, "Fast",   12.5, 22.0, "Harrowed twice this morning. No loose material. Good drainage."),
+        (1, "Fast",   11.8, 21.5, "Excellent condition. Light maintenance only."),
+        (2, "Good",   15.2, 19.0, "Slight overnight dew. Surface settled by 9am."),
+        (3, "Good",   14.7, 20.0, "Normal conditions. Turf course firm-good."),
+        (4, "Firm",   10.1, 24.0, "Dry stretch. Watered turf course 6am."),
+    ]
+    for days_ago, going, moisture, temp, notes in conditions:
+        log_date = (today - timedelta(days=days_ago)).isoformat()
+        # Skip if already exists
+        existing = session.query(SurfaceConditionLog).filter_by(
+            venue_id="CHURCHILL", logged_date=log_date).first()
+        if existing:
+            continue
+        session.add(SurfaceConditionLog(
+            venue_id="CHURCHILL",
+            logged_date=log_date,
+            surface_type="Dirt",
+            going_description=going,
+            moisture_pct=moisture,
+            temperature_c=temp,
+            maintenance_notes=notes,
+            logged_by="Track Superintendent J. Morrison",
+        ))
+        total += 1
+    session.commit()
+    return total
+
+
+def seed_stewards_ruling(session, today: date) -> int:
+    """A stewards' ruling from yesterday's card — 48h deadline looming."""
+    from datetime import timezone
+    ruling_date = datetime.combine(today - timedelta(days=1), time(16, 30)).replace(tzinfo=timezone.utc)
+    deadline = ruling_date + timedelta(hours=48)
+    ruling = StewardsRuling(
+        ruling_date=ruling_date,
+        rule_violated="Rule 2230.5 — Careless riding",
+        description="Jockey F. Prat aboard Gun Runner caused interference with Accelerate "
+                    "(M. Smith) approaching the final turn, resulting in Accelerate being "
+                    "checked and losing approximately 2 lengths. Incident reviewed via "
+                    "video replay. Objection lodged by rider of Accelerate.",
+        penalty="Jockey F. Prat suspended 3 riding days (Days 3–5 of next meeting). "
+                "No change in finishing order.",
+        jockey_name="F. Prat",
+        horse_chip_id="985112000000016",  # Gun Runner
+        status="draft",
+        deadline_at=deadline,
+    )
+    session.add(ruling)
+    session.flush()
+    horse = session.get(Horse, "985112000000016")
+    from app.models import Race as RaceModel
+    payload = hisa_builder.build_stewards_submission(ruling, horse=horse)
+    session.add(HISASubmission(
+        rule_category="STEWARDS_RULING",
+        status="pending",
+        source_record_type="StewardsRuling",
+        source_record_id=ruling.id,
+        horse_chip_id="985112000000016",
+        deadline_at=deadline,
+        payload_json=json.dumps(payload),
+    ))
+    session.commit()
+    return 1
+
+
+def seed_hisa_submissions(session, today: date) -> int:
+    """Pre-build HISA submissions from recent workouts, check-ins, and treatments."""
+    created = 0
+
+    # Workouts from the past 7 days
+    recent_workouts = session.query(WorkoutRecord).filter(
+        WorkoutRecord.workout_date >= (today - timedelta(days=7)).isoformat()
+    ).limit(30).all()
+    for w in recent_workouts:
+        if session.query(HISASubmission).filter_by(
+                source_record_type="WorkoutRecord", source_record_id=w.id).first():
+            continue
+        horse = session.get(Horse, w.horse_chip_id)
+        payload = hisa_builder.build_workout_submission(w, horse=horse)
+        session.add(HISASubmission(
+            rule_category="WORKOUTS", status="pending",
+            source_record_type="WorkoutRecord", source_record_id=w.id,
+            horse_chip_id=w.horse_chip_id, payload_json=json.dumps(payload),
+        ))
+        created += 1
+
+    # Today's check-ins (pre-race identity verification)
+    todays_checkins = session.query(CheckInRecord).filter(
+        CheckInRecord.race_id.isnot(None)
+    ).order_by(CheckInRecord.scanned_at.desc()).limit(20).all()
+    for c in todays_checkins:
+        if session.query(HISASubmission).filter_by(
+                source_record_type="CheckInRecord", source_record_id=c.id).first():
+            continue
+        horse = session.get(Horse, c.horse_chip_id)
+        payload = hisa_builder.build_checkin_submission(c, horse=horse)
+        session.add(HISASubmission(
+            rule_category="CHECKIN", status="pending",
+            source_record_type="CheckInRecord", source_record_id=c.id,
+            horse_chip_id=c.horse_chip_id, payload_json=json.dumps(payload),
+        ))
+        created += 1
+
+    # All treatment records
+    for t in session.query(TreatmentRecord).all():
+        if session.query(HISASubmission).filter_by(
+                source_record_type="TreatmentRecord", source_record_id=t.id).first():
+            continue
+        horse = session.get(Horse, t.horse_chip_id)
+        payload = hisa_builder.build_treatment_submission(t, horse=horse)
+        session.add(HISASubmission(
+            rule_category="ADMC_TREATMENT", status="pending",
+            source_record_type="TreatmentRecord", source_record_id=t.id,
+            horse_chip_id=t.horse_chip_id, payload_json=json.dumps(payload),
+        ))
+        created += 1
+
+    # Surface condition logs
+    for sl in session.query(SurfaceConditionLog).all():
+        if session.query(HISASubmission).filter_by(
+                source_record_type="SurfaceConditionLog", source_record_id=sl.id).first():
+            continue
+        payload = hisa_builder.build_surface_submission(sl)
+        session.add(HISASubmission(
+            rule_category="SURFACE", status="pending",
+            source_record_type="SurfaceConditionLog", source_record_id=sl.id,
+            payload_json=json.dumps(payload),
+        ))
+        created += 1
+
+    # Mark some older workout submissions as already accepted (shows accepted count)
+    older_workout_subs = session.query(HISASubmission).filter(
+        HISASubmission.rule_category == "WORKOUTS",
+        HISASubmission.status == "pending",
+    ).limit(40).all()
+    for sub in older_workout_subs[:25]:
+        sub.status = "accepted"
+        from datetime import timezone
+        sub.submitted_at = datetime.now(timezone.utc) - timedelta(days=random.randint(1, 6))
+
+    # Mark a few test-barn submissions as accepted too
+    older_checkin_subs = session.query(HISASubmission).filter(
+        HISASubmission.rule_category == "CHECKIN",
+        HISASubmission.status == "pending",
+    ).limit(20).all()
+    for sub in older_checkin_subs[:10]:
+        sub.status = "accepted"
+
+    session.commit()
+    return created
+
+
+def seed_demo_checkins(session, today: date, race_ids: list) -> int:
+    """Pre-race check-ins for today's race card horses."""
+    total = 0
+    todays_horses = [
+        "985112000000001", "985112000000005", "985112000000011", "985112000000013",
+        "985112000000015", "985112000000016", "985112000000024", "985112000000025",
+        "985112000000006", "985112000000007", "985112000000012", "985112000000014",
+        "985112000000017", "985112000000018",
+        "985112000000002", "985112000000003", "985112000000008", "985112000000009", "985112000000019",
+    ]
+    officials = ["Head Steward Williams", "Assistant Steward Davis", "Gate Official Rodriguez"]
+    for i, chip in enumerate(todays_horses):
+        race_id = race_ids[min(i // 6, len(race_ids) - 1)]
+        session.add(CheckInRecord(
+            horse_chip_id=chip,
+            race_id=race_id,
+            scanned_at=datetime.combine(today, time(7 + i // 6, 15 + (i % 10) * 3)),
+            scanned_by=officials[i % len(officials)],
+            location="Paddock Gate B",
+            verified=True,
+            temperature_c=round(37.8 + random.uniform(-0.3, 0.5), 1),
+        ))
+        total += 1
+    session.commit()
+    return total
+
+
+# ------------------------------------------------------------------ #
 # Main
 # ------------------------------------------------------------------ #
 
@@ -698,22 +1092,51 @@ def run(force: bool = False) -> None:
         print("[seed] Generating test barn records...")
         n_test_barn = seed_test_barn(session, race_records)
 
+        print("[seed] Seeding treatment records (ADMC)...")
+        n_treatments = seed_treatments(session, today)
+
+        print("[seed] Seeding vet check records (Training Center)...")
+        n_vet_checks = seed_vet_checks(session, today)
+
+        print("[seed] Seeding today's Churchill Downs race card...")
+        demo_day = seed_demo_race_day(session, today)
+
+        print("[seed] Seeding today's race check-ins...")
+        n_demo_checkins = seed_demo_checkins(session, today, demo_day["race_ids"])
+
+        print("[seed] Seeding surface condition logs (HISA Rule 2151/2154)...")
+        n_surface = seed_surface_conditions(session, today)
+
+        print("[seed] Seeding stewards' ruling (48h deadline)...")
+        seed_stewards_ruling(session, today)
+
+        print("[seed] Pre-building HISA submissions...")
+        n_hisa = seed_hisa_submissions(session, today)
+
         print("[seed] Done.\n")
 
         # ── Summary ──────────────────────────────────────────────────
-        n_races   = len(race_records)
+        n_races   = len(race_records) + 4  # +4 today's demo card
         n_entries = sum(len(r["field"]) for r in race_records)
 
         print("========== SEED SUMMARY ==========")
         print(f"Venues:            {len(VENUES)}")
         print(f"Horses:            {len(HORSES)}")
-        print(f"Races:             {n_races}")
+        print(f"Races:             {n_races} (incl. today's card)")
         print(f"Race entries:      {n_entries}")
         print(f"Race results:      {n_entries}")
         print(f"Vet records:       {n_vet + len(HORSES)}")   # +implant per horse
         print(f"Workout records:   {n_workouts}")
-        print(f"Check-in records:  {n_checkins}")
+        print(f"Vet checks:        {n_vet_checks}")
+        print(f"Treatment records: {n_treatments}")
+        print(f"Check-in records:  {n_checkins + n_demo_checkins}")
         print(f"Test barn records: {n_test_barn}")
+        print(f"Surface logs:      {n_surface} (Churchill, 5 days)")
+        print(f"HISA submissions:  {n_hisa} (pre-built)")
+        print(f"")
+        print(f"TODAY'S RACE CARD — Churchill Downs:")
+        for name in demo_day["race_names"]:
+            print(f"  · {name}")
         print("===================================\n")
 
         print("First 5 horse chip IDs for testing Horse Profile:")
