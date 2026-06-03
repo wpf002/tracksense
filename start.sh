@@ -134,6 +134,19 @@ if os.path.exists(db):
                 tenant_id VARCHAR(36) REFERENCES tenants(id),
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )"""),
+        ("vet_check_records", """
+            CREATE TABLE vet_check_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                horse_chip_id VARCHAR NOT NULL REFERENCES horses(chip_id),
+                check_date VARCHAR(10) NOT NULL,
+                check_type VARCHAR(32) NOT NULL,
+                outcome VARCHAR(32) NOT NULL,
+                vet_name VARCHAR(128),
+                race_id INTEGER REFERENCES races(id),
+                notes TEXT,
+                tenant_id VARCHAR(36) REFERENCES tenants(id),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )"""),
     ]:
         if tbl not in tables:
             con.execute(f"CREATE TABLE {tbl} {ddl}")

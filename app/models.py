@@ -57,6 +57,7 @@ class Horse(Base):
     biosensor_readings: Mapped[list["BiosensorReading"]] = relationship("BiosensorReading", back_populates="horse", cascade="all, delete-orphan")
     treatments: Mapped[list["TreatmentRecord"]] = relationship("TreatmentRecord", back_populates="horse", cascade="all, delete-orphan")
     stewards_rulings: Mapped[list["StewardsRuling"]] = relationship("StewardsRuling", back_populates="horse")
+    vet_checks: Mapped[list["VetCheckRecord"]] = relationship("VetCheckRecord", back_populates="horse", cascade="all, delete-orphan")
 
 
 class Owner(Base):
@@ -402,3 +403,24 @@ class HISASubmission(Base):
     submitted_by: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
     tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+# ------------------------------------------------------------------ #
+# Phase 4 — Training Center Module
+# ------------------------------------------------------------------ #
+
+class VetCheckRecord(Base):
+    """Structured barn/training vet check — distinct from clinical VetRecord."""
+    __tablename__ = "vet_check_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False, index=True)
+    check_date: Mapped[str] = mapped_column(String(10), nullable=False)              # YYYY-MM-DD
+    check_type: Mapped[str] = mapped_column(String(32), nullable=False)              # routine|lameness|pre_shipment|post_race|other
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)                 # cleared|restricted|scratched|referred
+    vet_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True, index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    horse: Mapped["Horse"] = relationship("Horse", back_populates="vet_checks")

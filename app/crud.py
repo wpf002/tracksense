@@ -871,3 +871,190 @@ def submission_exists(db: Session, source_record_type: str, source_record_id: in
         source_record_id=source_record_id,
     ).first() is not None
 
+
+
+# ------------------------------------------------------------------ #
+# Phase 4 — Training Center Module
+# ------------------------------------------------------------------ #
+
+from app.models import VetCheckRecord
+
+
+def add_vet_check(db: Session, horse_chip_id: str, check_date: str,
+                  check_type: str, outcome: str, **kwargs) -> dict:
+    if not db.get(Horse, horse_chip_id):
+        return {"ok": False, "error": f"Horse '{horse_chip_id}' not found"}
+    record = VetCheckRecord(horse_chip_id=horse_chip_id, check_date=check_date,
+                            check_type=check_type, outcome=outcome, **kwargs)
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {"ok": True, "id": record.id}
+
+
+def get_vet_checks(db: Session, horse_chip_id: str) -> list[VetCheckRecord]:
+    return (db.query(VetCheckRecord).filter_by(horse_chip_id=horse_chip_id)
+            .order_by(VetCheckRecord.check_date.desc()).all())
+
+
+def get_training_roster(db: Session, tenant_id: Optional[str] = None,
+                        trainer_name: Optional[str] = None) -> list[dict]:
+    """
+    Daily training center roster: all horses for the tenant/trainer with a
+    status snapshot — last workout, latest vet check outcome, open treatment
+    count, and pending HISA submissions.
+    """
+    from app.models import WorkoutRecord, TreatmentRecord
+    from sqlalchemy import func as sqlfunc
+
+    q = db.query(Horse)
+    if tenant_id:
+        q = q.filter(Horse.tenant_id == tenant_id)
+
+    horses = q.order_by(Horse.name).all()
+    roster = []
+
+    for horse in horses:
+        # Filter by trainer if specified
+        if trainer_name:
+            current_trainer = next((t.trainer_name for t in horse.trainers if not t.to_date), None)
+            if current_trainer != trainer_name:
+                continue
+
+        # Last workout
+        last_workout = (db.query(WorkoutRecord).filter_by(horse_chip_id=horse.chip_id)
+                        .order_by(WorkoutRecord.workout_date.desc()).first())
+
+        # Latest vet check
+        latest_check = (db.query(VetCheckRecord).filter_by(horse_chip_id=horse.chip_id)
+                        .order_by(VetCheckRecord.check_date.desc()).first())
+
+        # Open (non-cleared) treatment count
+        open_treatments = (db.query(TreatmentRecord)
+                           .filter(TreatmentRecord.horse_chip_id == horse.chip_id)
+                           .count())
+
+        # Pending HISA submissions for this horse
+        pending_hisa = (db.query(HISASubmission)
+                        .filter(HISASubmission.horse_chip_id == horse.chip_id,
+                                HISASubmission.status == "pending")
+                        .count())
+
+        current_trainer_name = next((t.trainer_name for t in horse.trainers if not t.to_date), None)
+        current_owner_name = next((o.owner_name for o in horse.owners if not o.to_date), None)
+
+        roster.append({
+            "chip_id": horse.chip_id,
+            "name": horse.name,
+            "breed": horse.breed,
+            "current_trainer": current_trainer_name,
+            "current_owner": current_owner_name,
+            "last_workout_date": last_workout.workout_date if last_workout else None,
+            "last_workout_distance_m": last_workout.distance_m if last_workout else None,
+            "latest_vet_check_date": latest_check.check_date if latest_check else None,
+            "latest_vet_check_outcome": latest_check.outcome if latest_check else None,
+            "open_treatment_count": open_treatments,
+            "pending_hisa_count": pending_hisa,
+        })
+
+    return roster
+
+
+def get_owner_report(db: Session, horse_chip_id: str, period: str = "week") -> dict:
+    """
+    Aggregated performance summary for owner reporting.
+    period: 'week' (7 days) or 'month' (30 days).
+    """
+    from datetime import date, timedelta
+    from app.models import WorkoutRecord, TreatmentRecord, RaceResult, RaceEntry
+
+    today = date.today()
+    days = 7 if period == "week" else 30
+    since = (today - timedelta(days=days)).isoformat()
+
+    horse = db.get(Horse, horse_chip_id)
+    if not horse:
+        return None
+
+    workouts = (db.query(WorkoutRecord)
+                .filter(WorkoutRecord.horse_chip_id == horse_chip_id,
+                        WorkoutRecord.workout_date >= since)
+                .order_by(WorkoutRecord.workout_date.desc()).all())
+
+    vet_checks = (db.query(VetCheckRecord)
+                  .filter(VetCheckRecord.horse_chip_id == horse_chip_id,
+                          VetCheckRecord.check_date >= since)
+                  .order_by(VetCheckRecord.check_date.desc()).all())
+
+    treatments = (db.query(TreatmentRecord)
+                  .filter(TreatmentRecord.horse_chip_id == horse_chip_id,
+                          TreatmentRecord.treatment_date >= since)
+                  .all())
+
+    # Recent race results
+    recent_entries = (db.query(RaceEntry).filter_by(horse_chip_id=horse_chip_id)
+                      .join(RaceEntry.race)
+                      .order_by(db.query(RaceEntry).join(RaceEntry.race)
+                                .filter_by(horse_chip_id=horse_chip_id)
+                                .first().__class__.race_id.desc()
+                                if False else RaceEntry.race_id.desc())
+                      .limit(5).all()) if False else []
+
+    # Simplified race lookup
+    from app.models import Race
+    race_results = (
+        db.query(RaceResult, Race)
+        .join(Race, RaceResult.race_id == Race.id)
+        .filter(RaceResult.horse_chip_id == horse_chip_id,
+                Race.race_date >= since)
+        .order_by(Race.race_date.desc())
+        .limit(5)
+        .all()
+    )
+
+    current_trainer = next((t.trainer_name for t in horse.trainers if not t.to_date), None)
+    current_owner = next((o.owner_name for o in horse.owners if not o.to_date), None)
+
+    total_distance = sum(w.distance_m for w in workouts if w.distance_m)
+
+    return {
+        "horse": {"chip_id": horse.chip_id, "name": horse.name,
+                  "breed": horse.breed, "current_trainer": current_trainer,
+                  "current_owner": current_owner},
+        "period": period,
+        "period_days": days,
+        "since": since,
+        "workouts": {
+            "count": len(workouts),
+            "total_distance_m": total_distance,
+            "records": [
+                {"date": w.workout_date, "distance_m": w.distance_m,
+                 "surface": w.surface, "duration_ms": w.duration_ms,
+                 "trainer": w.trainer_name, "rider": w.rider_name}
+                for w in workouts
+            ],
+        },
+        "vet_checks": {
+            "count": len(vet_checks),
+            "last_outcome": vet_checks[0].outcome if vet_checks else None,
+            "records": [
+                {"date": v.check_date, "type": v.check_type,
+                 "outcome": v.outcome, "vet": v.vet_name}
+                for v in vet_checks
+            ],
+        },
+        "treatments": {
+            "count": len(treatments),
+            "records": [
+                {"date": t.treatment_date, "substance": t.substance,
+                 "is_prohibited": t.is_prohibited}
+                for t in treatments
+            ],
+        },
+        "race_results": [
+            {"race_id": rr.race_id, "finish_position": rr.finish_position,
+             "elapsed_ms": rr.elapsed_ms, "venue_id": race.venue_id,
+             "race_date": race.race_date.isoformat() if race.race_date else None}
+            for rr, race in race_results
+        ],
+    }

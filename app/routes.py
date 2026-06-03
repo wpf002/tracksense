@@ -1537,6 +1537,94 @@ def build_all_hisa_submissions(db: Session = Depends(get_db),
 
 
 # ------------------------------------------------------------------ #
+# Phase 4 — Training Center Module
+# ------------------------------------------------------------------ #
+
+class AddVetCheckRequest(BaseModel):
+    check_date: str = Field(..., description="ISO date e.g. '2026-06-01'")
+    check_type: str = Field(..., description="routine|lameness|pre_shipment|post_race|other")
+    outcome: str = Field(..., description="cleared|restricted|scratched|referred")
+    vet_name: Optional[str] = None
+    race_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+@router.post("/horses/{chip_id}/vet-checks")
+def add_vet_check(chip_id: str, req: AddVetCheckRequest,
+                  db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    result = crud.add_vet_check(
+        db, horse_chip_id=chip_id.strip().upper(),
+        check_date=req.check_date, check_type=req.check_type,
+        outcome=req.outcome, vet_name=req.vet_name,
+        race_id=req.race_id, notes=req.notes,
+    )
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.get("/horses/{chip_id}/vet-checks")
+def get_vet_checks(chip_id: str, db: Session = Depends(get_db)):
+    chip_id = chip_id.strip().upper()
+    if not crud.get_horse(db, chip_id):
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    records = crud.get_vet_checks(db, chip_id)
+    return {
+        "chip_id": chip_id,
+        "vet_checks": [
+            {
+                "id": r.id,
+                "check_date": r.check_date,
+                "check_type": r.check_type,
+                "outcome": r.outcome,
+                "vet_name": r.vet_name,
+                "race_id": r.race_id,
+                "notes": r.notes,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in records
+        ],
+    }
+
+
+@router.get("/training/roster")
+def training_roster(db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
+    """
+    Daily training center roster for the current tenant.
+    Each horse has a status snapshot: last workout, latest vet check, open
+    treatments, and pending HISA submissions.
+    Trainers see all horses in their tenant; admins see all.
+    """
+    trainer_name = None
+    if current_user.role == "trainer":
+        trainer_name = current_user.full_name  # match against horse.trainers
+    roster = crud.get_training_roster(
+        db,
+        tenant_id=current_user.tenant_id,
+        trainer_name=trainer_name,
+    )
+    return {"roster": roster, "count": len(roster)}
+
+
+@router.get("/horses/{chip_id}/owner-report")
+def owner_report(chip_id: str, period: str = "week",
+                 db: Session = Depends(get_db),
+                 _: User = Depends(get_current_user)):
+    """
+    Aggregated owner report for a horse.
+    period: 'week' (7 days) or 'month' (30 days).
+    """
+    chip_id = chip_id.strip().upper()
+    if period not in ("week", "month"):
+        raise HTTPException(400, "period must be 'week' or 'month'")
+    report = crud.get_owner_report(db, horse_chip_id=chip_id, period=period)
+    if report is None:
+        raise HTTPException(404, f"Horse '{chip_id}' not found")
+    return report
+
+
+# ------------------------------------------------------------------ #
 # Tenants (super-admin only)
 # ------------------------------------------------------------------ #
 

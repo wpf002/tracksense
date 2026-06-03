@@ -38,6 +38,7 @@ export default function Shell() {
         {/* Nav items */}
         <nav className="flex flex-col gap-0.5 py-4 flex-1">
           <NavLink to="/live">Race Day</NavLink>
+          <NavLink to="/training">Training Center</NavLink>
           <NavLink to="/results">Results</NavLink>
           <NavLink to="/horses">Horses</NavLink>
           <NavLink to="/mobile/checkin">Quick Check-In</NavLink>
@@ -97,9 +98,9 @@ export default function Shell() {
       {/* ── Mobile bottom tab bar (visible only at ≤640px) ───────────── */}
       <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface border-t border-border flex items-stretch h-14">
         {[
-          { to: '/live',           label: 'Race Day', icon: '◉' },
-          { to: '/results',        label: 'Results',  icon: '🏁' },
-          { to: '/horses',         label: 'Horses',   icon: '🐎' },
+          { to: '/live',     label: 'Race Day', icon: '◉' },
+          { to: '/training', label: 'Training', icon: '🏋' },
+          { to: '/horses',   label: 'Horses',   icon: '🐎' },
           { to: '/mobile/checkin', label: 'Check-In', icon: '📷' },
           ...(role === 'admin' ? [{ to: '/builder', label: 'Add Race', icon: '⚙' }] : []),
         ].map(({ to, label, icon }) => {

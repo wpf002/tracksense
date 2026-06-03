@@ -14,6 +14,7 @@ import {
 import DataTable from '../components/ui/DataTable'
 import TimingDisplay from '../components/ui/TimingDisplay'
 import StatBadge from '../components/ui/StatBadge'
+import { getVetChecks, addVetCheck, getOwnerReport } from '../api/training'
 
 const ACCENT = '#f59e0b'
 
@@ -447,6 +448,73 @@ function LogTreatmentModal({ chip_id, onClose, onSaved }) {
   )
 }
 
+function LogVetCheckModal({ chip_id, onClose, onSaved }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [form, setForm] = useState({
+    check_date: today, check_type: 'routine', outcome: 'cleared',
+    vet_name: '', notes: '',
+  })
+  const [error, setError] = useState(null)
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const mut = useMutation({
+    mutationFn: () => addVetCheck(chip_id, {
+      check_date: form.check_date, check_type: form.check_type,
+      outcome: form.outcome, vet_name: form.vet_name || null, notes: form.notes || null,
+    }),
+    onSuccess: () => onSaved(),
+    onError: (err) => setError(err.response?.data?.detail ?? 'Save failed'),
+  })
+  const field = 'bg-bg border border-border text-text-primary px-2 py-1.5 text-sm focus:outline-none focus:border-accent'
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="bg-surface border border-border w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-widest text-text-primary">Log Vet Check</span>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-lg">×</button>
+        </div>
+        <div className="p-4 grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 col-span-2">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Date</span>
+            <input type="date" value={form.check_date} onChange={set('check_date')} className={field} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Check Type</span>
+            <select value={form.check_type} onChange={set('check_type')} className={field}>
+              {['routine', 'lameness', 'pre_shipment', 'post_race', 'other'].map((t) => (
+                <option key={t} value={t}>{t.replace('_', ' ')}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Outcome</span>
+            <select value={form.outcome} onChange={set('outcome')} className={field}>
+              {['cleared', 'restricted', 'scratched', 'referred'].map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 col-span-2">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Vet Name</span>
+            <input value={form.vet_name} onChange={set('vet_name')} className={field} />
+          </label>
+          <label className="flex flex-col gap-1 col-span-2">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Notes</span>
+            <input value={form.notes} onChange={set('notes')} className={field} />
+          </label>
+        </div>
+        {error && <p className="px-4 text-red-400 text-xs font-timing">{error}</p>}
+        <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
+          <button onClick={onClose} className="text-xs font-timing uppercase tracking-widest border border-border text-text-muted px-3 py-1.5 hover:text-text-primary">Cancel</button>
+          <button onClick={() => { setError(null); mut.mutate() }} disabled={mut.isPending}
+            className="text-xs font-timing font-bold uppercase tracking-widest bg-accent text-bg px-4 py-1.5 hover:bg-accent-dim disabled:opacity-40">
+            {mut.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function HorseDetail({ chip_id }) {
   const [showAllTestBarn, setShowAllTestBarn] = useState(false)
 
@@ -499,10 +567,22 @@ function HorseDetail({ chip_id }) {
     queryFn: () => getHorseTreatments(chip_id),
     enabled: !!horse,
   })
+  const { data: vetChecks = [], isLoading: loadingVetChecks } = useQuery({
+    queryKey: ['horse-vet-checks', chip_id],
+    queryFn: () => getVetChecks(chip_id),
+    enabled: !!horse,
+  })
+  const [ownerReportPeriod, setOwnerReportPeriod] = useState('week')
+  const { data: ownerReport, isLoading: loadingReport } = useQuery({
+    queryKey: ['horse-owner-report', chip_id, ownerReportPeriod],
+    queryFn: () => getOwnerReport(chip_id, ownerReportPeriod),
+    enabled: !!horse,
+  })
   const qc = useQueryClient()
   const [expandedWorkoutId, setExpandedWorkoutId] = useState(null)
   const [showLogWorkout, setShowLogWorkout] = useState(false)
   const [showLogTreatment, setShowLogTreatment] = useState(false)
+  const [showLogVetCheck, setShowLogVetCheck] = useState(false)
 
   if (loadingHorse)
     return <p className="p-6 text-text-muted text-xs font-timing tracking-widest">Loading...</p>
@@ -949,6 +1029,50 @@ function HorseDetail({ chip_id }) {
         )}
       </SectionShell>
 
+      {/* ── SECTION 6.5: Vet Checks (Training Center) ── */}
+      <div className="border border-border bg-surface mb-6">
+        <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-0.5 h-3.5 bg-accent flex-shrink-0" />
+            <span className="text-xs font-semibold uppercase tracking-widest text-text-muted">Vet Checks</span>
+          </div>
+          <button onClick={() => setShowLogVetCheck(true)}
+            className="text-xs font-timing uppercase tracking-widest border border-border text-text-muted hover:border-accent hover:text-accent px-2 py-1 transition-colors">
+            + Log Check
+          </button>
+        </div>
+        {loadingVetChecks ? <SectionLoading /> : vetChecks.length === 0 ? (
+          <p className="px-4 py-3 text-text-muted text-xs font-timing">No vet checks recorded</p>
+        ) : (
+          <DataTable
+            columns={[
+              { key: 'check_date', label: 'Date', render: (r) => <span className="font-timing text-xs text-text-muted">{r.check_date}</span> },
+              { key: 'check_type', label: 'Type', render: (r) => <span className="text-xs capitalize text-text-primary">{r.check_type?.replace('_', ' ')}</span> },
+              { key: 'outcome', label: 'Outcome', render: (r) => (
+                <span className={`text-xs font-timing font-bold uppercase ${
+                  r.outcome === 'cleared' ? 'text-green-400'
+                  : r.outcome === 'restricted' ? 'text-amber-400'
+                  : r.outcome === 'scratched' ? 'text-red-400'
+                  : 'text-orange-400'
+                }`}>{r.outcome}</span>
+              )},
+              { key: 'vet_name', label: 'Vet', render: (r) => <span className="text-xs text-text-muted">{r.vet_name ?? '—'}</span> },
+              { key: 'notes', label: 'Notes', render: (r) => <span className="text-xs text-text-muted">{r.notes ?? '—'}</span> },
+            ]}
+            rows={vetChecks.map((r) => ({ ...r }))}
+            emptyMessage=""
+          />
+        )}
+      </div>
+
+      {showLogVetCheck && (
+        <LogVetCheckModal
+          chip_id={chip_id}
+          onClose={() => setShowLogVetCheck(false)}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ['horse-vet-checks', chip_id] }); setShowLogVetCheck(false) }}
+        />
+      )}
+
       {/* ── SECTION 7: Pre-Race Check-ins ── */}
       <SectionShell title="Pre-Race Check-ins — Last 10">
         {loadingCheckins ? <SectionLoading /> : checkinsError ? <SectionError /> : (
@@ -1069,6 +1193,58 @@ function HorseDetail({ chip_id }) {
 
       {/* ── SECTION 11: Head to Head ── */}
       <HeadToHead chip_id1={chip_id} />
+
+      {/* ── SECTION 12: Owner Report ── */}
+      <div className="border border-border bg-surface mb-6">
+        <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-0.5 h-3.5 bg-accent flex-shrink-0" />
+            <span className="text-xs font-semibold uppercase tracking-widest text-text-muted">Owner Report</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {['week', 'month'].map((p) => (
+              <button key={p} onClick={() => setOwnerReportPeriod(p)}
+                className={`text-xs font-timing uppercase tracking-widest px-2 py-0.5 border transition-colors ${
+                  ownerReportPeriod === p ? 'border-accent text-accent' : 'border-border text-text-muted hover:border-accent hover:text-accent'
+                }`}>
+                {p === 'week' ? '7 days' : '30 days'}
+              </button>
+            ))}
+          </div>
+        </div>
+        {loadingReport ? <SectionLoading /> : !ownerReport ? (
+          <p className="px-4 py-3 text-text-muted text-xs font-timing">No report data</p>
+        ) : (
+          <div className="p-4">
+            <div className="flex gap-0 border border-border mb-4">
+              <StatBadge label="Workouts" value={ownerReport.workouts.count} />
+              <StatBadge label="Distance" value={ownerReport.workouts.total_distance_m > 0 ? `${(ownerReport.workouts.total_distance_m / 1000).toFixed(1)}km` : '—'} />
+              <StatBadge label="Vet Checks" value={ownerReport.vet_checks.count} />
+              <StatBadge label="Treatments" value={ownerReport.treatments.count} variant={ownerReport.treatments.count > 0 ? 'accent' : 'muted'} />
+              <StatBadge label="Races" value={ownerReport.race_results.length} />
+            </div>
+            {ownerReport.vet_checks.last_outcome && (
+              <p className="text-xs text-text-muted font-timing mb-2">
+                Latest vet check: <span className={`font-bold ${ownerReport.vet_checks.last_outcome === 'cleared' ? 'text-green-400' : 'text-amber-400'}`}>{ownerReport.vet_checks.last_outcome}</span>
+              </p>
+            )}
+            {ownerReport.race_results.length > 0 && (
+              <div className="mt-2">
+                <p className="text-[10px] uppercase tracking-widest text-text-muted mb-1">Race Results ({ownerReport.period_days} days)</p>
+                <div className="flex flex-col gap-1">
+                  {ownerReport.race_results.map((r, i) => (
+                    <div key={i} className="flex items-center gap-3 text-xs font-timing text-text-muted">
+                      <span className="text-accent font-bold">{r.finish_position ? `${r.finish_position}${r.finish_position === 1 ? 'st' : r.finish_position === 2 ? 'nd' : r.finish_position === 3 ? 'rd' : 'th'}` : '—'}</span>
+                      <span>{r.venue_id}</span>
+                      <span>{r.race_date ? new Date(r.race_date).toLocaleDateString() : '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {showLogWorkout && (
         <LogWorkoutModal

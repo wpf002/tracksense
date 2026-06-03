@@ -11,6 +11,7 @@ import ChangePassword from './views/ChangePassword'
 import Webhooks from './views/Webhooks'
 import MobileCheckin from './views/MobileCheckin'
 import ComplianceDashboard from './views/ComplianceDashboard'
+import TrainingCenter from './views/TrainingCenter'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,6 +52,7 @@ export default function App() {
             <Route path="/settings/password" element={<ChangePassword />} />
             <Route path="/mobile/checkin" element={<MobileCheckin />} />
             <Route path="/compliance" element={<ComplianceDashboard />} />
+            <Route path="/training" element={<TrainingCenter />} />
             <Route path="*" element={<Navigate to="/live" replace />} />
           </Route>
         </Routes>
