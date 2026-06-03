@@ -16,11 +16,14 @@ export default function RaceResults() {
 
   const { data: races = [] } = useQuery({ queryKey: ['races'], queryFn: listRaces })
 
-  // Default to most recent finished race
+  // Default: today's finished race first, otherwise most recent finished
   useEffect(() => {
     if (!raceId && races.length) {
-      const finished = races.find(r => r.status === 'finished') || races[0]
-      setRaceId(String(finished.race_id))
+      const today = new Date().toDateString()
+      const todayFinished = races.find(r => r.status === 'finished' &&
+        r.race_date && new Date(r.race_date).toDateString() === today)
+      const fallback = races.find(r => r.status === 'finished') || races[0]
+      setRaceId(String((todayFinished || fallback).race_id))
     }
   }, [races]) // eslint-disable-line react-hooks/exhaustive-deps
 

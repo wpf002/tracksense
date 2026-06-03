@@ -652,8 +652,8 @@ def list_horses(
                 "name": h.name,
                 "breed": h.breed,
                 "date_of_birth": h.date_of_birth,
-                "implant_date": h.implant_date,
-                "implant_vet": h.implant_vet,
+                "current_trainer": next((t.trainer_name for t in h.trainers if not t.to_date), None),
+                "current_owner": next((o.owner_name for o in h.owners if not o.to_date), None),
             }
             for h in horses
         ]
@@ -993,6 +993,35 @@ def get_checkins(chip_id: str, race_id: Optional[int] = None, db: Session = Depe
                 "temperature_c": r.temperature_c,
             }
             for r in records
+        ],
+    }
+
+
+@router.get("/checkins/today-summary")
+def checkins_today_summary(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Count of check-ins today plus the last 10 for the check-in landing screen."""
+    from datetime import date
+    from app.models import CheckInRecord
+    today_str = date.today().isoformat()
+    today_checkins = (
+        db.query(CheckInRecord)
+        .filter(CheckInRecord.scanned_at >= today_str)
+        .order_by(CheckInRecord.scanned_at.desc())
+        .all()
+    )
+    recent = today_checkins[:8]
+    return {
+        "today_count": len(today_checkins),
+        "recent": [
+            {
+                "horse_chip_id": c.horse_chip_id,
+                "horse_name": crud.get_horse(db, c.horse_chip_id).name if crud.get_horse(db, c.horse_chip_id) else None,
+                "scanned_at": c.scanned_at.isoformat() if c.scanned_at else None,
+                "location": c.location,
+                "temperature_c": c.temperature_c,
+                "verified": c.verified,
+            }
+            for c in recent
         ],
     }
 

@@ -104,43 +104,57 @@ function HorseList() {
   const filtered = horses.filter(
     (h) =>
       h.name?.toLowerCase().includes(search.toLowerCase()) ||
-      h.chip_id?.toLowerCase().includes(search.toLowerCase())
+      h.chip_id?.includes(search) ||
+      (h.current_trainer ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (h.current_owner ?? '').toLowerCase().includes(search.toLowerCase())
   )
 
   const columns = [
     {
+      key: 'name',
+      label: 'Horse',
+      render: (row) => (
+        <div>
+          <span className="font-bold text-text-primary">{row.name}</span>
+          <span className="text-text-muted text-xs ml-2">{row.breed ?? ''}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'current_trainer',
+      label: 'Trainer',
+      render: (row) => <span className="text-sm text-text-primary">{row.current_trainer ?? '—'}</span>,
+    },
+    {
+      key: 'current_owner',
+      label: 'Owner',
+      render: (row) => <span className="text-sm text-text-muted">{row.current_owner ?? '—'}</span>,
+    },
+    {
       key: 'chip_id',
       label: 'Chip ID',
-      render: (row) => (
-        <span className="font-timing text-text-muted text-xs">{row.chip_id}</span>
-      ),
-    },
-    {
-      key: 'name',
-      label: 'Name',
-      render: (row) => <span className="font-medium">{row.name}</span>,
-    },
-    {
-      key: 'breed',
-      label: 'Breed',
-      render: (row) => (
-        <span className="text-text-muted">{row.breed ?? '—'}</span>
-      ),
+      render: (row) => <span className="font-timing text-xs text-text-muted">{row.chip_id}</span>,
     },
   ]
 
   return (
     <div className="p-6">
-      <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase mb-6">
-        Horse Registry
-      </h1>
+      <div className="flex items-baseline justify-between mb-2">
+        <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase">
+          Horse Registry
+        </h1>
+        <span className="text-xs text-text-muted font-timing">{horses.length} registered horses</span>
+      </div>
+      <p className="text-xs text-text-muted font-timing mb-5">
+        Every covered horse, identified by Jockey Club LF microchip. Click any horse for their full profile — workouts, vet records, race history, treatments, and compliance status.
+      </p>
 
       <input
         type="text"
-        placeholder="Search by name or chip ID..."
+        placeholder="Search by name, trainer, owner, or chip ID…"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="w-full max-w-md bg-surface border border-border text-text-primary px-3 py-2 text-sm font-timing focus:outline-none focus:border-accent mb-6"
+        className="w-full max-w-md bg-surface border border-border text-text-primary px-3 py-2 text-sm font-timing focus:outline-none focus:border-accent mb-4"
       />
 
       {isLoading ? (
@@ -151,7 +165,7 @@ function HorseList() {
             columns={columns}
             rows={filtered.map((h) => ({ ...h, id: h.chip_id }))}
             onRowClick={(row) => navigate(`/horses/${row.chip_id}`)}
-            emptyMessage="No horses found"
+            emptyMessage="No horses match your search"
           />
         </div>
       )}

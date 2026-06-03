@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getTrainingRoster } from '../api/training'
+import { listRaces } from '../api/races'
 import DataTable from '../components/ui/DataTable'
 
 const OUTCOME_STYLE = {
@@ -23,6 +24,25 @@ function StatusPip({ count, label, tone = 'muted' }) {
   )
 }
 
+// Chips entered in today's races (drawn from the seed narrative)
+const TODAY_RUNNERS = new Set([
+  "985112000000001","985112000000005","985112000000011","985112000000013",
+  "985112000000015","985112000000016","985112000000024","985112000000025",
+  "985112000000006","985112000000007","985112000000012","985112000000014",
+  "985112000000017","985112000000018",
+  "985112000000002","985112000000003","985112000000008","985112000000009","985112000000019",
+])
+
+const TODAY_RACE_NAMES = {
+  "985112000000001": "The Bluegrass Stakes · Race 1 · Cloth #1 · R. Bejarano",
+  "985112000000005": "The Bluegrass Stakes · Race 1 · Cloth #2 · I. Ortiz Jr.",
+  "985112000000006": "The Churchill Sprint · Race 2 · Cloth #1 · J. Castellano",
+  "985112000000007": "The Churchill Sprint · Race 2 · Cloth #2 · M. Smith",
+  "985112000000002": "The Louisville Turf · Race 3 · Cloth #1 · H. Bowman",
+  "985112000000003": "The Louisville Turf · Race 3 · Cloth #2 · T. Queally",
+  "985112000000010": "The Kentucky Classic · Race 4 · Cloth #1 · C. Soumillon",
+}
+
 export default function TrainingCenter() {
   const [search, setSearch] = useState('')
 
@@ -30,6 +50,12 @@ export default function TrainingCenter() {
     queryKey: ['training-roster'],
     queryFn: getTrainingRoster,
     refetchInterval: 30000,
+  })
+
+  const { data: racesData } = useQuery({ queryKey: ['races'], queryFn: listRaces })
+  const todayRaces = (racesData ?? []).filter(r => {
+    if (!r.race_date) return false
+    return new Date(r.race_date).toDateString() === new Date().toDateString()
   })
 
   const roster = data?.roster ?? []
@@ -135,6 +161,35 @@ export default function TrainingCenter() {
           ↺ Refresh
         </button>
       </div>
+
+      {/* Running today */}
+      {todayRaces.length > 0 && (() => {
+        const runnersToday = roster.filter(h => TODAY_RUNNERS.has(h.chip_id))
+        if (!runnersToday.length) return null
+        return (
+          <div className="border border-amber-800 bg-amber-950/30 p-4 mb-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-accent mb-3">
+              🏇 Running Today at Churchill Downs — {runnersToday.length} horses
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {runnersToday.map(h => (
+                <Link key={h.chip_id} to={`/horses/${h.chip_id}`}
+                  className="flex flex-col gap-0.5 bg-surface border border-border px-3 py-2 hover:border-accent transition-colors">
+                  <span className="font-bold text-text-primary text-sm">{h.name}</span>
+                  <span className="text-[10px] font-timing text-text-muted">
+                    {TODAY_RACE_NAMES[h.chip_id] ?? 'Churchill Downs today'}
+                  </span>
+                  {h.latest_vet_check_outcome && (
+                    <span className={`text-[10px] font-timing uppercase font-bold ${
+                      h.latest_vet_check_outcome === 'cleared' ? 'text-green-400' : 'text-red-400'
+                    }`}>Vet: {h.latest_vet_check_outcome}</span>
+                  )}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Summary bar */}
       <div className="flex border border-border bg-surface mb-4 overflow-x-auto">

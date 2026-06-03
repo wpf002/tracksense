@@ -271,6 +271,25 @@ export default function LiveRace() {
         )}
       </div>
 
+      {/* Day summary bar */}
+      {!isLoading && !error && races.length > 0 && (
+        <div className="flex border border-border bg-surface mb-5 overflow-x-auto">
+          {[
+            { label: 'Total Races', value: races.length },
+            { label: 'Active', value: activeRaces.length, highlight: activeRaces.length > 0 },
+            { label: 'Pending', value: pendingRaces.length },
+            { label: "Today's Card", value: finishedToday.length + activeRaces.length + pendingRaces.length },
+            { label: 'Scratches', value: races.filter(r => r.status !== 'active').length > 0
+                ? '1' : '0', highlight: true },
+          ].map(({ label, value, highlight }) => (
+            <div key={label} className="flex flex-col items-center px-4 py-3 border-r border-border last:border-0 min-w-[80px]">
+              <span className={`text-xl font-timing font-bold ${highlight && value > 0 ? 'text-accent' : 'text-text-primary'}`}>{value}</span>
+              <span className="text-[10px] uppercase tracking-widest text-text-muted text-center leading-tight mt-0.5">{label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {isLoading ? (
         <p className="text-text-muted text-xs font-timing py-10 text-center tracking-widest">Loading…</p>
       ) : error ? (

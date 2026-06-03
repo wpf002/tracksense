@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import client from '../api/client'
 import { getHorseSummary } from '../api/horses'
 
@@ -14,16 +14,10 @@ function tempClass(t) {
   return 'text-green-400'
 }
 
-// A valid Jockey Club LF chip is 15 digits (ISO 11784/11785 FDX-B).
 const isValidChip = (s) => /^\d{15}$/.test(s.replace(/\s/g, ''))
 
 function Flag({ label, value, tone = 'muted' }) {
-  const toneClass = {
-    red: 'text-red-400',
-    amber: 'text-amber-400',
-    good: 'text-green-400',
-    muted: 'text-text-primary',
-  }[tone]
+  const toneClass = { red: 'text-red-400', amber: 'text-amber-400', good: 'text-green-400', muted: 'text-text-primary' }[tone]
   return (
     <div className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
       <span className="text-xs uppercase tracking-wider text-text-muted">{label}</span>
@@ -35,19 +29,25 @@ function Flag({ label, value, tone = 'muted' }) {
 export default function MobileCheckin() {
   const [chipId, setChipId] = useState('')
   const [tempInput, setTempInput] = useState('')
-  const [horse, setHorse] = useState(null)    // summary card after lookup
+  const [horse, setHorse] = useState(null)
   const [error, setError] = useState(null)
-  const [flash, setFlash] = useState(null)    // 'success' | 'error'
+  const [flash, setFlash] = useState(null)
   const chipRef = useRef(null)
 
   useEffect(() => { chipRef.current?.focus() }, [])
+
+  // Today's check-in summary for the landing state
+  const { data: todaySummary } = useQuery({
+    queryKey: ['checkins-today'],
+    queryFn: () => client.get('/checkins/today-summary').then(r => r.data),
+    refetchInterval: 15000,
+  })
 
   function reset() {
     setChipId(''); setTempInput(''); setHorse(null); setError(null)
     chipRef.current?.focus()
   }
 
-  // Step 1: scan/enter chip → look up the horse summary
   const lookupMutation = useMutation({
     mutationFn: (id) => getHorseSummary(id.replace(/\s/g, '')),
     onSuccess: (data) => { setHorse(data); setError(null) },
@@ -57,12 +57,11 @@ export default function MobileCheckin() {
     },
   })
 
-  // Step 2: record the check-in for the looked-up horse
   const checkinMutation = useMutation({
     mutationFn: ({ id, temperature_c }) =>
       client.post(`/horses/${id}/checkins`, {
-        scanned_by: 'Mobile Check-In',
-        location: 'Paddock',
+        scanned_by: 'Check-In Scanner',
+        location: 'Paddock Gate B',
         temperature_c: temperature_c ?? null,
       }).then(r => r.data),
     onSuccess: () => {
@@ -94,12 +93,13 @@ export default function MobileCheckin() {
 
   return (
     <div className="min-h-screen bg-bg flex flex-col">
+      {/* Header */}
       <div className="px-4 py-4 border-b border-border bg-surface">
         <h1 className="text-lg font-bold tracking-tight text-text-primary uppercase font-timing">
-          Quick Check-In
+          Check-In
         </h1>
         <p className="text-xs text-text-muted font-timing mt-0.5">
-          Scan or enter the Jockey Club LF chip (15 digits)
+          Scan or enter a Jockey Club LF microchip to verify identity before paddock entry
         </p>
       </div>
 
@@ -112,10 +112,35 @@ export default function MobileCheckin() {
         </div>
       )}
 
+      {/* Today's progress — visible before scanning */}
+      {!horse && todaySummary && (
+        <div className="mx-4 mt-4 border border-border bg-surface p-3">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[10px] uppercase tracking-widest text-text-muted">Today's Check-Ins</p>
+            <span className="text-xl font-timing font-bold text-accent">{todaySummary.today_count}</span>
+          </div>
+          {todaySummary.recent?.length > 0 && (
+            <div className="flex flex-col gap-1">
+              {todaySummary.recent.map((c, i) => (
+                <div key={i} className="flex items-center justify-between text-xs font-timing text-text-muted border-t border-border pt-1">
+                  <span className="text-text-primary">{c.horse_name ?? c.horse_chip_id}</span>
+                  <div className="flex items-center gap-3">
+                    {c.temperature_c != null && (
+                      <span className={tempClass(c.temperature_c)}>{c.temperature_c.toFixed(1)}°C</span>
+                    )}
+                    <span className="text-green-400 text-[10px]">✓ VERIFIED</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Step 1: chip lookup */}
-      <form onSubmit={handleLookup} className="px-4 pt-6">
+      <form onSubmit={handleLookup} className="px-4 pt-5">
         <label className="block text-xs font-timing uppercase tracking-widest text-text-muted mb-1">
-          Chip ID
+          Chip ID — 15 digits
         </label>
         <div className="flex gap-2">
           <input
@@ -139,7 +164,7 @@ export default function MobileCheckin() {
         {error && !flash && <p className="text-red-400 text-xs font-timing mt-2">{error}</p>}
       </form>
 
-      {/* Step 2: identity + flags card, then confirm check-in */}
+      {/* Step 2: identity + flags card → check in */}
       {horse && (
         <div className="px-4 pt-5">
           <div className="border border-border bg-surface p-4">
@@ -150,13 +175,10 @@ export default function MobileCheckin() {
             <p className="text-xs text-text-muted mb-3">
               {horse.breed ?? '—'} · {horse.current_trainer ?? 'no trainer'} · {horse.current_owner ?? 'no owner'}
             </p>
-            <Flag
-              label="Last Temp"
-              value={horse.latest_temperature_c != null ? `${horse.latest_temperature_c.toFixed(1)}°C` : '—'}
-              tone={horse.temperature_alert === 'red' ? 'red' : horse.temperature_alert === 'amber' ? 'amber' : horse.temperature_alert === 'normal' ? 'good' : 'muted'}
-            />
-            <Flag label="Workouts" value={horse.workout_count > 0 ? `${horse.workout_count} (last ${horse.last_workout_date ?? '—'})` : 'none'} />
-            <Flag label="Open Test Barn" value={horse.open_test_barn ? 'YES' : 'no'} tone={horse.open_test_barn ? 'amber' : 'muted'} />
+            <Flag label="Last Temp" value={horse.latest_temperature_c != null ? `${horse.latest_temperature_c.toFixed(1)}°C` : '—'}
+              tone={horse.temperature_alert === 'red' ? 'red' : horse.temperature_alert === 'amber' ? 'amber' : horse.temperature_alert === 'normal' ? 'good' : 'muted'} />
+            <Flag label="Workouts" value={horse.workout_count > 0 ? `${horse.workout_count} on record` : 'none'} />
+            <Flag label="Open Test Barn" value={horse.open_test_barn ? 'YES — sample pending' : 'No'} tone={horse.open_test_barn ? 'amber' : 'muted'} />
             <Flag label="Vet Records" value={horse.vet_record_count} />
           </div>
 
@@ -182,18 +204,15 @@ export default function MobileCheckin() {
           </div>
 
           <div className="flex gap-2 mt-4">
-            <button
-              onClick={reset}
-              className="px-4 py-3 text-sm uppercase tracking-widest border border-border text-text-muted hover:text-text-primary min-h-[52px]"
-            >
+            <button onClick={reset}
+              className="px-4 py-3 text-sm uppercase tracking-widest border border-border text-text-muted hover:text-text-primary min-h-[52px]">
               Cancel
             </button>
             <button
               onClick={handleCheckIn}
               disabled={checkinMutation.isPending}
-              className="flex-1 py-3 text-base font-semibold tracking-widest uppercase bg-accent text-bg hover:bg-amber-400 transition-colors disabled:opacity-40 min-h-[52px]"
-            >
-              {checkinMutation.isPending ? 'Checking in…' : `Check In ${horse.name}`}
+              className="flex-1 py-3 text-base font-semibold tracking-widest uppercase bg-accent text-bg hover:bg-amber-400 transition-colors disabled:opacity-40 min-h-[52px]">
+              {checkinMutation.isPending ? 'Checking in…' : `✓ Check In — ${horse.name}`}
             </button>
           </div>
         </div>

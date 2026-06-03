@@ -160,12 +160,13 @@ export default function ComplianceDashboard() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase">
-            HISA Compliance
+            Compliance
           </h1>
           <p className="text-xs text-text-muted font-timing mt-1">
-            Submissions are assembled from operational data automatically. Review and
-            download each payload for manual portal upload until live API integration
-            is available.
+            HISA submission queue — every operational record (workouts, treatments,
+            check-ins, scratches, surface conditions, stewards' rulings) generates a
+            submission automatically. Review and download each JSON payload for
+            portal upload.
           </p>
         </div>
         <button
@@ -181,6 +182,22 @@ export default function ComplianceDashboard() {
         <p className="text-green-400 text-xs font-timing mb-4">
           ✓ Built {buildMut.data.created} new submission{buildMut.data.created !== 1 ? 's' : ''}
         </p>
+      )}
+
+      {/* Urgent action items */}
+      {overdue.length > 0 && (
+        <div className="border border-red-800 bg-red-950/30 px-4 py-3 mb-4 flex items-start gap-3">
+          <span className="text-red-400 text-lg mt-0.5">⚠</span>
+          <div>
+            <p className="text-red-400 text-sm font-semibold">
+              {overdue.length} overdue submission{overdue.length !== 1 ? 's' : ''} — deadline passed
+            </p>
+            <p className="text-xs text-text-muted font-timing mt-0.5">
+              {overdue.map(s => CATEGORY_LABELS[s.rule_category] ?? s.rule_category).join(' · ')}
+              {' '}— submit immediately to avoid compliance violation.
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Stats */}
