@@ -195,3 +195,54 @@ def build_checkin_submission(checkin, horse=None) -> dict:
             "notes": checkin.notes,
         },
     }
+
+
+# ------------------------------------------------------------------ #
+# Phase 5 — Race Day Operations
+# ------------------------------------------------------------------ #
+
+def build_scratch_submission(scratch, horse=None, race=None) -> dict:
+    """HISA Racetrack Safety Program — Scratch documentation."""
+    return {
+        "hisa_report_type": "SCRATCH",
+        "generated_at": _now_iso(),
+        "horse": {
+            "jockey_club_chip_id": scratch.horse_chip_id,
+            "name": horse.name if horse else None,
+        },
+        "scratch": {
+            "race_id": scratch.race_id,
+            "venue_id": race.venue_id if race else None,
+            "race_date": race.race_date.isoformat() if race and race.race_date else None,
+            "scratch_type": scratch.scratch_type,
+            "declared_by": scratch.declared_by,
+            "reason": scratch.reason,
+            "declared_at": _date_str(scratch.declared_at),
+        },
+    }
+
+
+def build_crop_violation_submission(violation, horse=None, race=None) -> dict:
+    """HISA Racetrack Safety Program — Rule 2280/2281 Riding Crop Violation."""
+    return {
+        "hisa_report_type": "RIDING_CROP_VIOLATION",
+        "rule_reference": "2280/2281",
+        "generated_at": _now_iso(),
+        "race": {
+            "race_id": violation.race_id,
+            "venue_id": race.venue_id if race else None,
+            "race_date": violation.race_date or (race.race_date.isoformat() if race and race.race_date else None),
+        },
+        "horse": {
+            "jockey_club_chip_id": violation.horse_chip_id,
+            "name": horse.name if horse else None,
+        } if violation.horse_chip_id else None,
+        "violation": {
+            "jockey_name": violation.jockey_name,
+            "crop_count": violation.crop_count,
+            "violation_determined": violation.violation_determined,
+            "penalty": violation.penalty,
+            "official_name": violation.official_name,
+            "notes": violation.notes,
+        },
+    }

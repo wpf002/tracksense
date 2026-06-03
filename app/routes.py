@@ -1625,6 +1625,218 @@ def owner_report(chip_id: str, period: str = "week",
 
 
 # ------------------------------------------------------------------ #
+# Phase 5 — Race Day Operations Module
+# ------------------------------------------------------------------ #
+
+class AddEntryRequest(BaseModel):
+    horse_chip_id: str
+    saddle_cloth: str
+    jockey: Optional[str] = None
+
+
+class UpdateEntryRequest(BaseModel):
+    saddle_cloth: Optional[str] = None
+    jockey: Optional[str] = None
+
+
+class ScratchRequest(BaseModel):
+    scratch_type: str = Field(..., description="veterinary|trainer|steward|official")
+    declared_by: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class IngestResultsRequest(BaseModel):
+    results: list[dict] = Field(..., description="[{horse_chip_id, finish_position, elapsed_ms?}]")
+
+
+class UpdateRaceStatusRequest(BaseModel):
+    status: str = Field(..., description="active|finished|pending")
+
+
+class AddCropViolationRequest(BaseModel):
+    jockey_name: str
+    crop_count: int
+    horse_chip_id: Optional[str] = None
+    violation_determined: bool = False
+    penalty: Optional[str] = None
+    official_name: Optional[str] = None
+    race_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.post("/races/{race_id}/entries")
+def add_race_entry(race_id: int, req: AddEntryRequest,
+                   db: Session = Depends(get_db),
+                   current_user: User = Depends(get_current_user)):
+    result = crud.add_race_entry(
+        db, race_id=race_id,
+        horse_chip_id=req.horse_chip_id.strip().upper(),
+        saddle_cloth=req.saddle_cloth,
+        jockey=req.jockey,
+    )
+    if not result["ok"]:
+        raise HTTPException(400, result["error"])
+    crud.write_audit_log(db, current_user, "add_entry", "race", str(race_id),
+                         {"horse": req.horse_chip_id, "cloth": req.saddle_cloth})
+    return result
+
+
+@router.patch("/races/{race_id}/entries/{chip_id}")
+def update_race_entry(race_id: int, chip_id: str, req: UpdateEntryRequest,
+                      db: Session = Depends(get_db),
+                      _: User = Depends(get_current_user)):
+    result = crud.update_race_entry(
+        db, race_id=race_id, horse_chip_id=chip_id.strip().upper(),
+        saddle_cloth=req.saddle_cloth, jockey=req.jockey,
+    )
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.post("/races/{race_id}/scratch/{chip_id}")
+def scratch_horse(race_id: int, chip_id: str, req: ScratchRequest,
+                  db: Session = Depends(get_db),
+                  current_user: User = Depends(get_current_user)):
+    """Scratch a horse from a race and auto-generate a HISA scratch submission."""
+    chip_id = chip_id.strip().upper()
+    result = crud.scratch_horse(
+        db, race_id=race_id, horse_chip_id=chip_id,
+        scratch_type=req.scratch_type, declared_by=req.declared_by,
+        reason=req.reason, tenant_id=current_user.tenant_id,
+    )
+    if not result["ok"]:
+        raise HTTPException(400, result["error"])
+
+    # Auto-create HISA scratch submission
+    from app import hisa_builder
+    import json
+    from app.models import ScratchRecord as ScratchModel
+    scratch_obj = db.query(ScratchModel).filter_by(
+        race_id=race_id, horse_chip_id=chip_id).first()
+    if scratch_obj:
+        horse = crud.get_horse(db, chip_id)
+        race = crud.get_race(db, race_id)
+        payload = hisa_builder.build_scratch_submission(scratch_obj, horse=horse, race=race)
+        crud.create_hisa_submission(
+            db, rule_category="SCRATCH",
+            source_record_type="ScratchRecord", source_record_id=scratch_obj.id,
+            horse_chip_id=chip_id, payload_json=json.dumps(payload),
+            tenant_id=current_user.tenant_id,
+        )
+
+    crud.write_audit_log(db, current_user, "scratch", "race", str(race_id),
+                         {"horse": chip_id, "type": req.scratch_type})
+    return result
+
+
+@router.get("/races/{race_id}/entries")
+def list_race_entries(race_id: int, db: Session = Depends(get_db)):
+    race = crud.get_race(db, race_id)
+    if not race:
+        raise HTTPException(404, f"Race {race_id} not found")
+    entries = crud.get_race_entries(db, race_id)
+    scratches = crud.get_scratches(db, race_id)
+    return {
+        "race_id": race_id,
+        "entries": [
+            {"id": e.id, "horse_chip_id": e.horse_chip_id,
+             "saddle_cloth": e.saddle_cloth, "jockey": e.jockey}
+            for e in entries
+        ],
+        "scratches": [
+            {"horse_chip_id": s.horse_chip_id, "scratch_type": s.scratch_type,
+             "declared_by": s.declared_by, "reason": s.reason,
+             "declared_at": s.declared_at.isoformat() if s.declared_at else None}
+            for s in scratches
+        ],
+    }
+
+
+@router.post("/races/{race_id}/results/ingest")
+def ingest_results(race_id: int, req: IngestResultsRequest,
+                   db: Session = Depends(get_db),
+                   current_user: User = Depends(get_current_user)):
+    """
+    Ingest official finish order from FinishLynx / MYLAPS / manual entry.
+    TrackSense receives results — it does not produce them.
+    """
+    if not req.results:
+        raise HTTPException(400, "results list is empty")
+    result = crud.ingest_race_results(db, race_id=race_id, results=req.results)
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    crud.write_audit_log(db, current_user, "ingest_results", "race", str(race_id),
+                         {"count": len(req.results)})
+    return result
+
+
+@router.patch("/races/{race_id}/status")
+def update_race_status(race_id: int, req: UpdateRaceStatusRequest,
+                       db: Session = Depends(get_db),
+                       current_user: User = Depends(get_current_user)):
+    if req.status not in ("pending", "active", "finished"):
+        raise HTTPException(400, "status must be pending|active|finished")
+    result = crud.update_race_status(db, race_id=race_id, status=req.status)
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+    crud.write_audit_log(db, current_user, "status_change", "race", str(race_id),
+                         {"status": req.status})
+    return result
+
+
+@router.post("/races/{race_id}/crop-violations")
+def add_crop_violation(race_id: int, req: AddCropViolationRequest,
+                       db: Session = Depends(get_db),
+                       current_user: User = Depends(require_compliance_or_admin)):
+    """Record a Rule 2280/2281 riding crop violation and auto-create HISA submission."""
+    result = crud.add_crop_violation(
+        db, race_id=race_id, jockey_name=req.jockey_name,
+        crop_count=req.crop_count,
+        horse_chip_id=req.horse_chip_id.strip().upper() if req.horse_chip_id else None,
+        violation_determined=req.violation_determined,
+        penalty=req.penalty, official_name=req.official_name,
+        race_date=req.race_date, notes=req.notes,
+        tenant_id=current_user.tenant_id,
+    )
+    if not result["ok"]:
+        raise HTTPException(404, result["error"])
+
+    from app import hisa_builder
+    import json
+    from app.models import RidingCropViolation as CropModel
+    v = db.get(CropModel, result["id"])
+    horse = crud.get_horse(db, v.horse_chip_id) if v.horse_chip_id else None
+    race = crud.get_race(db, race_id)
+    payload = hisa_builder.build_crop_violation_submission(v, horse=horse, race=race)
+    crud.create_hisa_submission(
+        db, rule_category="CROP_VIOLATION",
+        source_record_type="RidingCropViolation", source_record_id=v.id,
+        horse_chip_id=v.horse_chip_id, payload_json=json.dumps(payload),
+        tenant_id=current_user.tenant_id,
+    )
+    return result
+
+
+@router.get("/races/{race_id}/crop-violations")
+def list_crop_violations(race_id: int, db: Session = Depends(get_db),
+                          _: User = Depends(require_compliance_or_admin)):
+    race = crud.get_race(db, race_id)
+    if not race:
+        raise HTTPException(404, f"Race {race_id} not found")
+    violations = crud.get_crop_violations(db, race_id)
+    return {
+        "race_id": race_id,
+        "violations": [
+            {"id": v.id, "jockey_name": v.jockey_name, "horse_chip_id": v.horse_chip_id,
+             "crop_count": v.crop_count, "violation_determined": v.violation_determined,
+             "penalty": v.penalty, "official_name": v.official_name}
+            for v in violations
+        ],
+    }
+
+
+# ------------------------------------------------------------------ #
 # Tenants (super-admin only)
 # ------------------------------------------------------------------ #
 

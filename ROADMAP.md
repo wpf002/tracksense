@@ -40,8 +40,8 @@ operations module · compliance dashboard.
 | 1 | Strip the UHF/LLRP Architecture | 2 weeks | ✅ Complete |
 | 2 | LF Chip Identity Layer | 3 weeks | ✅ Complete |
 | 3 | HISA Reporting Module | 5 weeks | ✅ Complete |
-| 4 | Training Center Module | 4 weeks | 🟡 **IN PROGRESS** |
-| 5 | Race Day Operations Module | 4 weeks | ⬜ Not started |
+| 4 | Training Center Module | 4 weeks | ✅ Complete |
+| 5 | Race Day Operations Module | 4 weeks | 🟡 **IN PROGRESS** |
 | 6 | Go-To-Market | ongoing (parallel to 4–5) | ⬜ Not started |
 
 ---

@@ -1058,3 +1058,126 @@ def get_owner_report(db: Session, horse_chip_id: str, period: str = "week") -> d
             for rr, race in race_results
         ],
     }
+
+
+# ------------------------------------------------------------------ #
+# Phase 5 — Race Day Operations
+# ------------------------------------------------------------------ #
+
+from app.models import ScratchRecord, RidingCropViolation
+
+
+def add_race_entry(db: Session, race_id: int, horse_chip_id: str,
+                   saddle_cloth: str, jockey: Optional[str] = None) -> dict:
+    race = db.get(Race, race_id)
+    if not race:
+        return {"ok": False, "error": f"Race {race_id} not found"}
+    if not db.get(Horse, horse_chip_id):
+        return {"ok": False, "error": f"Horse '{horse_chip_id}' not found"}
+    existing = db.query(RaceEntry).filter_by(race_id=race_id, horse_chip_id=horse_chip_id).first()
+    if existing:
+        return {"ok": False, "error": "Horse already entered in this race"}
+    entry = RaceEntry(race_id=race_id, horse_chip_id=horse_chip_id,
+                      saddle_cloth=saddle_cloth, jockey=jockey)
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return {"ok": True, "id": entry.id}
+
+
+def update_race_entry(db: Session, race_id: int, horse_chip_id: str,
+                      saddle_cloth: Optional[str] = None,
+                      jockey: Optional[str] = None) -> dict:
+    entry = db.query(RaceEntry).filter_by(race_id=race_id,
+                                           horse_chip_id=horse_chip_id).first()
+    if not entry:
+        return {"ok": False, "error": "Entry not found"}
+    if saddle_cloth is not None:
+        entry.saddle_cloth = saddle_cloth
+    if jockey is not None:
+        entry.jockey = jockey
+    db.commit()
+    return {"ok": True}
+
+
+def scratch_horse(db: Session, race_id: int, horse_chip_id: str,
+                  scratch_type: str, declared_by: Optional[str] = None,
+                  reason: Optional[str] = None,
+                  tenant_id: Optional[str] = None) -> dict:
+    """Remove horse from race and create a ScratchRecord."""
+    entry = db.query(RaceEntry).filter_by(race_id=race_id,
+                                           horse_chip_id=horse_chip_id).first()
+    if not entry:
+        return {"ok": False, "error": "No entry found for this horse in this race"}
+    db.delete(entry)
+    scratch = ScratchRecord(
+        race_id=race_id, horse_chip_id=horse_chip_id,
+        scratch_type=scratch_type, declared_by=declared_by,
+        reason=reason, declared_at=datetime.now(timezone.utc),
+        tenant_id=tenant_id,
+    )
+    db.add(scratch)
+    db.commit()
+    db.refresh(scratch)
+    return {"ok": True, "scratch_id": scratch.id}
+
+
+def ingest_race_results(db: Session, race_id: int,
+                        results: list[dict]) -> dict:
+    """
+    Ingest finish order from FinishLynx / manual entry.
+    results: [{horse_chip_id, finish_position, elapsed_ms}]
+    Idempotent — safe to call more than once.
+    """
+    race = db.get(Race, race_id)
+    if not race:
+        return {"ok": False, "error": f"Race {race_id} not found"}
+    created = 0
+    for r in results:
+        existing = db.query(RaceResult).filter_by(race_id=race_id,
+                                                   horse_chip_id=r["horse_chip_id"]).first()
+        if existing:
+            existing.finish_position = r["finish_position"]
+            existing.elapsed_ms = r.get("elapsed_ms")
+        else:
+            db.add(RaceResult(race_id=race_id, horse_chip_id=r["horse_chip_id"],
+                              finish_position=r["finish_position"],
+                              elapsed_ms=r.get("elapsed_ms")))
+            created += 1
+    race.status = "finished"
+    db.commit()
+    return {"ok": True, "created": created, "race_status": "finished"}
+
+
+def update_race_status(db: Session, race_id: int, status: str) -> dict:
+    race = db.get(Race, race_id)
+    if not race:
+        return {"ok": False, "error": f"Race {race_id} not found"}
+    race.status = status
+    db.commit()
+    return {"ok": True, "race_id": race_id, "status": status}
+
+
+def add_crop_violation(db: Session, race_id: int, jockey_name: str,
+                       crop_count: int, **kwargs) -> dict:
+    race = db.get(Race, race_id)
+    if not race:
+        return {"ok": False, "error": f"Race {race_id} not found"}
+    v = RidingCropViolation(race_id=race_id, jockey_name=jockey_name,
+                             crop_count=crop_count, **kwargs)
+    db.add(v)
+    db.commit()
+    db.refresh(v)
+    return {"ok": True, "id": v.id}
+
+
+def get_race_entries(db: Session, race_id: int) -> list[RaceEntry]:
+    return db.query(RaceEntry).filter_by(race_id=race_id).order_by(RaceEntry.saddle_cloth).all()
+
+
+def get_scratches(db: Session, race_id: int) -> list[ScratchRecord]:
+    return db.query(ScratchRecord).filter_by(race_id=race_id).all()
+
+
+def get_crop_violations(db: Session, race_id: int) -> list[RidingCropViolation]:
+    return db.query(RidingCropViolation).filter_by(race_id=race_id).all()

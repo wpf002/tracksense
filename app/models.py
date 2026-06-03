@@ -424,3 +424,42 @@ class VetCheckRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     horse: Mapped["Horse"] = relationship("Horse", back_populates="vet_checks")
+
+
+# ------------------------------------------------------------------ #
+# Phase 5 — Race Day Operations Module
+# ------------------------------------------------------------------ #
+
+class ScratchRecord(Base):
+    """Horse scratched from a race — creates HISA scratch documentation."""
+    __tablename__ = "scratch_records"
+    __table_args__ = (UniqueConstraint("race_id", "horse_chip_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    race_id: Mapped[int] = mapped_column(Integer, ForeignKey("races.id"), nullable=False, index=True)
+    horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False, index=True)
+    scratch_type: Mapped[str] = mapped_column(String(32), nullable=False)  # veterinary|trainer|steward|official
+    declared_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    declared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
+                                                   default=lambda: datetime.now(timezone.utc))
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RidingCropViolation(Base):
+    """Rule 2280/2281 riding crop violation — generates HISA submission."""
+    __tablename__ = "riding_crop_violations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    race_id: Mapped[int] = mapped_column(Integer, ForeignKey("races.id"), nullable=False, index=True)
+    horse_chip_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=True, index=True)
+    jockey_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    crop_count: Mapped[int] = mapped_column(Integer, nullable=False)        # number of crop uses
+    violation_determined: Mapped[bool] = mapped_column(Boolean, default=False)
+    penalty: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    official_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    race_date: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # YYYY-MM-DD
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

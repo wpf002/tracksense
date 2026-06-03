@@ -147,6 +147,34 @@ if os.path.exists(db):
                 tenant_id VARCHAR(36) REFERENCES tenants(id),
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )"""),
+        ("scratch_records", """
+            CREATE TABLE scratch_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                race_id INTEGER NOT NULL REFERENCES races(id),
+                horse_chip_id VARCHAR NOT NULL REFERENCES horses(chip_id),
+                scratch_type VARCHAR(32) NOT NULL,
+                declared_by VARCHAR(128),
+                reason TEXT,
+                declared_at DATETIME NOT NULL,
+                tenant_id VARCHAR(36) REFERENCES tenants(id),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(race_id, horse_chip_id)
+            )"""),
+        ("riding_crop_violations", """
+            CREATE TABLE riding_crop_violations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                race_id INTEGER NOT NULL REFERENCES races(id),
+                horse_chip_id VARCHAR REFERENCES horses(chip_id),
+                jockey_name VARCHAR(128) NOT NULL,
+                crop_count INTEGER NOT NULL,
+                violation_determined BOOLEAN NOT NULL DEFAULT 0,
+                penalty VARCHAR(200),
+                official_name VARCHAR(128),
+                race_date VARCHAR(10),
+                notes TEXT,
+                tenant_id VARCHAR(36) REFERENCES tenants(id),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )"""),
     ]:
         if tbl not in tables:
             con.execute(f"CREATE TABLE {tbl} {ddl}")

@@ -315,6 +315,7 @@ def weighted_sample_no_replacement(population: list, weights: list, k: int) -> l
 def clear_tables(session) -> None:
     for table in [
         "hisa_submissions", "stewards_rulings", "surface_condition_logs",
+        "riding_crop_violations", "scratch_records",
         "treatment_records", "vet_check_records", "biosensor_readings",
         "test_barn_records", "checkin_records", "workout_records",
         "race_results", "race_entries", "races",
