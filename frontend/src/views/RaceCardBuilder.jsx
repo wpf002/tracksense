@@ -7,17 +7,27 @@ import { createRace } from '../api/races'
 const toFurlongs = (m) => (m / 201.168).toFixed(1)
 const SURFACES = ['Dirt', 'Turf', 'Synthetic']
 
+const CONDITIONS = [
+  'Allowance', 'Stakes', 'Claiming', 'Maiden Special Weight',
+  'Maiden Claiming', 'Starter Allowance', 'Graded Stakes (G1)',
+  'Graded Stakes (G2)', 'Graded Stakes (G3)',
+]
+
 export default function RaceCardBuilder() {
   const navigate = useNavigate()
   const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: listVenues })
 
   const [venueId, setVenueId] = useState('')
-  const [name, setName] = useState('')
-  const [raceDate, setRaceDate] = useState(() => new Date().toISOString().slice(0, 16))
+  const [name, setName]       = useState('')
+  const [raceDate, setRaceDate] = useState(() => {
+    const d = new Date(); d.setHours(14, 0, 0, 0)
+    return d.toISOString().slice(0, 16)
+  })
   const [distance, setDistance] = useState('1600')
-  const [surface, setSurface] = useState('Dirt')
+  const [surface, setSurface]   = useState('Dirt')
   const [conditions, setConditions] = useState('')
   const [error, setError] = useState(null)
+  const [success, setSuccess] = useState(null)
 
   useEffect(() => {
     if (!venueId && venues.length) {
@@ -26,90 +36,127 @@ export default function RaceCardBuilder() {
     }
   }, [venues]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const selectedVenue = venues.find(v => v.venue_id === venueId)
+
   const createMut = useMutation({
-    mutationFn: () =>
-      createRace({
-        venue_id: venueId,
-        name: name || null,
-        race_date: new Date(raceDate).toISOString(),
-        distance_m: Number(distance),
-        surface: surface.toLowerCase(),
-        conditions: conditions || null,
-      }),
-    onSuccess: () => navigate('/live'),
+    mutationFn: () => createRace({
+      venue_id: venueId,
+      name: name || null,
+      race_date: new Date(raceDate).toISOString(),
+      distance_m: Number(distance),
+      surface: surface.toLowerCase(),
+      conditions: conditions || null,
+    }),
+    onSuccess: (data) => {
+      setSuccess(`Race card created — Race ${data.race_id}`)
+      setTimeout(() => navigate('/live'), 1200)
+    },
     onError: (err) => setError(err.response?.data?.detail ?? 'Could not create race'),
   })
 
-  const field = 'bg-bg border border-border text-text-primary px-3 py-2.5 text-sm focus:outline-none focus:border-accent'
+  const inputCls = 'w-full bg-bg border border-border text-text-primary px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors'
+  const labelCls = 'block text-[10px] uppercase tracking-widest text-text-secondary mb-1.5'
 
   return (
-    <div className="p-6">
-      <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase mb-6">
-        Add Race <span className="text-text-muted text-sm normal-case">(Admin)</span>
-      </h1>
+    <div className="p-6 max-w-2xl">
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase">Races</h1>
+        <p className="text-sm text-text-secondary mt-1">
+          Create a race card for today's meeting. Entries and results are managed from the Race Day console.
+        </p>
+      </div>
 
-      <div className="flex justify-center pt-4">
-        <div className="border border-border bg-surface p-8 w-full max-w-2xl">
-          <h2 className="text-lg font-bold uppercase tracking-widest text-text-primary mb-1">
-            Add a Race
-          </h2>
-          <p className="text-xs text-text-muted font-timing tracking-wide mb-2">
-            Admin/setup tool. In production, race cards and entries are <span className="text-text-primary">ingested</span>
-            {' '}from the track's race office (Equibase/FinishLynx) and surface automatically on
-            each horse's page — owners and trainers don't author races here.
-          </p>
-          <p className="text-xs text-text-muted font-timing tracking-wide mb-6">
-            Manual entry is for setup, demos, and tracks running their own card.
-          </p>
+      {/* Form card */}
+      <div className="bg-surface border border-border">
+        <div className="px-5 py-4 border-b border-border">
+          <h2 className="text-xs font-semibold uppercase tracking-widest text-text-primary">New Race</h2>
+        </div>
 
-          <div className="flex flex-col gap-5">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-text-muted uppercase tracking-wider">Track</span>
-              <select value={venueId} onChange={(e) => setVenueId(e.target.value)} className={field}>
-                {venues.map((v) => (
-                  <option key={v.venue_id} value={v.venue_id}>
-                    {v.name} ({v.total_distance_m}m · {toFurlongs(v.total_distance_m)}f)
-                  </option>
-                ))}
-              </select>
-            </label>
+        <div className="p-5 flex flex-col gap-5">
+          {/* Track */}
+          <div>
+            <label className={labelCls}>Track</label>
+            <select value={venueId} onChange={(e) => {
+              setVenueId(e.target.value)
+              const v = venues.find(x => x.venue_id === e.target.value)
+              if (v) setDistance(String(Math.round(v.total_distance_m)))
+            }} className={inputCls}>
+              {venues.map(v => (
+                <option key={v.venue_id} value={v.venue_id}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+            {selectedVenue && (
+              <p className="mt-1 text-xs text-text-muted font-timing">
+                {selectedVenue.venue_id} · {selectedVenue.total_distance_m}m track · {toFurlongs(selectedVenue.total_distance_m)} furlongs
+              </p>
+            )}
+          </div>
 
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-text-muted uppercase tracking-wider">Race Name (optional)</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. The Spring Handicap" className={field} />
-            </label>
+          {/* Race name */}
+          <div>
+            <label className={labelCls}>Race Name <span className="text-text-muted normal-case">(optional)</span></label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. The Kentucky Classic"
+              className={inputCls}
+            />
+          </div>
 
-            <div className="flex gap-4 flex-wrap">
-              <label className="flex flex-col gap-1.5 flex-1 min-w-48">
-                <span className="text-xs text-text-muted uppercase tracking-wider">Date &amp; Time</span>
-                <input type="datetime-local" value={raceDate} onChange={(e) => setRaceDate(e.target.value)} className={`${field} font-timing`} />
-              </label>
-              <label className="flex flex-col gap-1.5 w-40">
-                <span className="text-xs text-text-muted uppercase tracking-wider">Distance (m)</span>
-                <input type="number" value={distance} onChange={(e) => setDistance(e.target.value)} className={`${field} font-timing`} />
-              </label>
-              <label className="flex flex-col gap-1.5 w-40">
-                <span className="text-xs text-text-muted uppercase tracking-wider">Surface</span>
-                <select value={surface} onChange={(e) => setSurface(e.target.value)} className={field}>
-                  {SURFACES.map((s) => <option key={s}>{s}</option>)}
-                </select>
-              </label>
+          {/* Date / Distance / Surface row */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="col-span-3 sm:col-span-1">
+              <label className={labelCls}>Post Time</label>
+              <input type="datetime-local" value={raceDate}
+                onChange={(e) => setRaceDate(e.target.value)}
+                className={`${inputCls} font-timing`} />
             </div>
+            <div>
+              <label className={labelCls}>Distance (m)</label>
+              <input type="number" value={distance}
+                onChange={(e) => setDistance(e.target.value)}
+                className={`${inputCls} font-timing`} />
+              {distance && <p className="mt-1 text-xs text-text-muted font-timing">{toFurlongs(Number(distance))} furlongs</p>}
+            </div>
+            <div>
+              <label className={labelCls}>Surface</label>
+              <select value={surface} onChange={(e) => setSurface(e.target.value)} className={inputCls}>
+                {SURFACES.map(s => <option key={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
 
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-text-muted uppercase tracking-wider">Conditions (optional)</span>
-              <input value={conditions} onChange={(e) => setConditions(e.target.value)} placeholder="e.g. 3yo+ maiden" className={field} />
-            </label>
+          {/* Conditions */}
+          <div>
+            <label className={labelCls}>Conditions <span className="text-text-muted normal-case">(optional)</span></label>
+            <select value={conditions} onChange={(e) => setConditions(e.target.value)} className={inputCls}>
+              <option value="">— Select —</option>
+              {CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
 
+          {error && (
+            <p className="text-red-400 text-xs font-timing">{error}</p>
+          )}
+          {success && (
+            <p className="text-green-400 text-xs font-timing">✓ {success} — redirecting to Race Day…</p>
+          )}
+
+          {/* Submit */}
+          <div className="pt-1">
             <button
-              onClick={() => { setError(null); createMut.mutate() }}
-              disabled={!venueId || !distance || createMut.isPending}
-              className="mt-2 px-6 py-3 text-sm font-bold uppercase tracking-widest bg-accent text-bg hover:bg-accent-dim transition-colors disabled:opacity-40 w-full"
+              onClick={() => { setError(null); setSuccess(null); createMut.mutate() }}
+              disabled={!venueId || !distance || createMut.isPending || !!success}
+              className="w-full py-3.5 text-sm font-bold uppercase tracking-widest bg-accent text-bg hover:bg-accent-dim transition-colors disabled:opacity-40"
             >
               {createMut.isPending ? 'Creating…' : 'Create Race Card →'}
             </button>
-
-            {error && <p className="text-red-400 text-xs font-timing">{error}</p>}
+            <p className="text-center text-xs text-text-muted mt-2 font-timing">
+              After creating, open Race Day to add entries and manage the card.
+            </p>
           </div>
         </div>
       </div>

@@ -159,23 +159,25 @@ export default function ComplianceDashboard() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase">
-            Compliance
-          </h1>
-          <p className="text-xs text-text-muted font-timing mt-1">
-            HISA submission queue — every operational record (workouts, treatments,
-            check-ins, scratches, surface conditions, stewards' rulings) generates a
-            submission automatically. Review and download each JSON payload for
-            portal upload.
-          </p>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase">Compliance</h1>
+            <p className="text-sm text-text-secondary mt-1">
+              HISA submission queue — every operational record generates a submission automatically. Review and download JSON payloads for portal upload.
+            </p>
+          </div>
         </div>
-        <button
-          onClick={() => buildMut.mutate()}
-          disabled={buildMut.isPending}
-          className="px-4 py-2 text-sm font-bold uppercase tracking-widest border border-accent text-accent hover:bg-amber-950 transition-colors disabled:opacity-40"
-        >
-          {buildMut.isPending ? 'Building…' : '↺ Build Missing'}
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={() => buildMut.mutate()}
+            disabled={buildMut.isPending}
+            className="px-4 py-2 text-sm font-semibold uppercase tracking-widest border border-border text-text-secondary hover:border-accent hover:text-accent transition-colors disabled:opacity-40"
+          >
+            {buildMut.isPending ? 'Scanning…' : '↺ Sync'}
+          </button>
+          <span className="text-[10px] text-text-muted font-timing text-right max-w-[160px] leading-tight">
+            Scans all records for new submissions not yet in the queue
+          </span>
+        </div>
       </div>
 
       {buildMut.data && (

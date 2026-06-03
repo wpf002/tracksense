@@ -45,7 +45,7 @@ export default function Shell() {
           {(role === 'admin' || role === 'compliance') && (
             <NavLink to="/compliance">Compliance</NavLink>
           )}
-          {role === 'admin' && <NavLink to="/builder">Add Race (Admin)</NavLink>}
+          {role === 'admin' && <NavLink to="/builder">Races</NavLink>}
 
           <div className="mt-3 border-t border-border pt-3">
             <button
