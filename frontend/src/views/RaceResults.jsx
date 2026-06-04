@@ -28,13 +28,17 @@ export default function RaceResults() {
   const todayRaces = races.filter(r => r.race_date && new Date(r.race_date).toDateString() === today)
   const pastRaces  = races.filter(r => r.race_date && new Date(r.race_date).toDateString() !== today)
 
-  // Default to today's most recent finished race
+  // Default to the latest race (most recent finished race, else most recent overall)
   useEffect(() => {
     if (!raceId && races.length) {
-      const todayFinished = races.find(r => r.status === 'finished' &&
-        r.race_date && new Date(r.race_date).toDateString() === today)
-      const fallback = races.find(r => r.status === 'finished') || races[0]
-      setRaceId(String((todayFinished || fallback).race_id))
+      const byLatest = (a, b) => {
+        const da = a.race_date ? new Date(a.race_date).getTime() : 0
+        const db = b.race_date ? new Date(b.race_date).getTime() : 0
+        return db !== da ? db - da : (b.race_id ?? 0) - (a.race_id ?? 0)
+      }
+      const finished = races.filter(r => r.status === 'finished').sort(byLatest)
+      const latest = finished[0] ?? [...races].sort(byLatest)[0]
+      setRaceId(String(latest.race_id))
     }
   }, [races]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -99,16 +103,17 @@ export default function RaceResults() {
 
       {/* Race picker — styled like the rest of the app */}
       <div className="relative mb-6">
+        <label className="block text-[10px] uppercase tracking-widest text-text-secondary mb-1.5">Viewing race</label>
         <button
           onClick={() => setShowPicker(v => !v)}
-          className="w-full flex items-center justify-between bg-surface border border-border px-4 py-3 text-left hover:border-accent transition-colors group"
+          className={`w-full flex items-center justify-between bg-surface border px-4 py-3 text-left transition-colors group ${showPicker ? 'border-accent' : 'border-border hover:border-accent/60'}`}
         >
           {selectedRace ? (
-            <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-3 flex-wrap min-w-0">
               <span className={`text-[10px] font-timing font-bold uppercase px-1.5 py-0.5 border ${STATUS_STYLE[selectedRace.status] ?? 'border-border text-text-muted'}`}>
                 {selectedRace.status}
               </span>
-              <span className="font-semibold text-text-primary">{selectedRace.name || `Race ${selectedRace.race_id}`}</span>
+              <span className="font-semibold text-text-primary truncate">{selectedRace.name || `Race ${selectedRace.race_id}`}</span>
               <span className="font-timing text-sm text-accent">{selectedRace.venue_id}</span>
               <span className="font-timing text-sm text-text-secondary">{selectedRace.distance_m}m</span>
               {selectedRace.race_date && (
@@ -120,45 +125,59 @@ export default function RaceResults() {
           ) : (
             <span className="text-text-muted font-timing text-sm">Select a race…</span>
           )}
-          <span className="text-text-muted text-xs ml-4 group-hover:text-accent transition-colors">{showPicker ? '▲' : '▼'}</span>
+          <svg
+            className={`w-4 h-4 ml-4 flex-shrink-0 text-text-muted group-hover:text-accent transition-all duration-200 ${showPicker ? 'rotate-180 text-accent' : ''}`}
+            viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"
+          >
+            <path d="M5 7.5l5 5 5-5" />
+          </svg>
         </button>
 
         {showPicker && (
-          <div className="absolute top-full left-0 right-0 z-30 bg-surface border border-accent max-h-80 overflow-y-auto shadow-xl">
-            {todayRaces.length > 0 && (
-              <>
-                <div className="px-4 py-1.5 bg-surface-2 border-b border-border">
-                  <span className="text-[10px] uppercase tracking-widest text-accent font-semibold">Today</span>
-                </div>
-                {todayRaces.map(r => (
-                  <button key={r.race_id}
-                    onClick={() => { setRaceId(String(r.race_id)); setShowPicker(false) }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-2 transition-colors border-b border-border/50 ${String(r.race_id) === raceId ? 'bg-amber-950/40' : ''}`}>
-                    <span className={`text-[10px] font-timing font-bold uppercase px-1.5 py-0.5 border flex-shrink-0 ${STATUS_STYLE[r.status] ?? 'border-border text-text-muted'}`}>{r.status}</span>
-                    <span className="font-semibold text-text-primary">{r.name || `Race ${r.race_id}`}</span>
-                    <span className="font-timing text-xs text-accent">{r.venue_id}</span>
-                    <span className="font-timing text-xs text-text-secondary ml-auto">{r.distance_m}m</span>
-                  </button>
-                ))}
-              </>
-            )}
-            {pastRaces.length > 0 && (
-              <>
-                <div className="px-4 py-1.5 bg-surface-2 border-b border-border">
-                  <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Previous</span>
-                </div>
-                {pastRaces.map(r => (
-                  <button key={r.race_id}
-                    onClick={() => { setRaceId(String(r.race_id)); setShowPicker(false) }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-2 transition-colors border-b border-border/50 ${String(r.race_id) === raceId ? 'bg-amber-950/40' : ''}`}>
-                    <span className="font-semibold text-text-primary">{r.name || `Race ${r.race_id}`}</span>
-                    <span className="font-timing text-xs text-accent">{r.venue_id}</span>
-                    {r.race_date && <span className="font-timing text-xs text-text-muted ml-auto">{new Date(r.race_date).toLocaleDateString()}</span>}
-                  </button>
-                ))}
-              </>
-            )}
-          </div>
+          <>
+            <div className="fixed inset-0 z-20" onClick={() => setShowPicker(false)} />
+            <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-surface border border-accent max-h-80 overflow-y-auto shadow-2xl">
+              {todayRaces.length > 0 && (
+                <>
+                  <div className="sticky top-0 px-4 py-1.5 bg-surface-2 border-b border-border z-10">
+                    <span className="text-[10px] uppercase tracking-widest text-accent font-semibold">Today</span>
+                  </div>
+                  {todayRaces.map(r => {
+                    const isSel = String(r.race_id) === raceId
+                    return (
+                      <button key={r.race_id}
+                        onClick={() => { setRaceId(String(r.race_id)); setShowPicker(false) }}
+                        className={`w-full flex items-center gap-3 pl-4 pr-4 py-3 text-left transition-colors border-b border-border/50 border-l-2 ${isSel ? 'bg-amber-950/40 border-l-accent' : 'border-l-transparent hover:bg-surface-2'}`}>
+                        <span className={`text-[10px] font-timing font-bold uppercase px-1.5 py-0.5 border flex-shrink-0 ${STATUS_STYLE[r.status] ?? 'border-border text-text-muted'}`}>{r.status}</span>
+                        <span className="font-semibold text-text-primary truncate">{r.name || `Race ${r.race_id}`}</span>
+                        <span className="font-timing text-xs text-accent flex-shrink-0">{r.venue_id}</span>
+                        <span className="font-timing text-xs text-text-secondary ml-auto flex-shrink-0">{r.distance_m}m</span>
+                      </button>
+                    )
+                  })}
+                </>
+              )}
+              {pastRaces.length > 0 && (
+                <>
+                  <div className="sticky top-0 px-4 py-1.5 bg-surface-2 border-b border-border z-10">
+                    <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold">Previous</span>
+                  </div>
+                  {pastRaces.map(r => {
+                    const isSel = String(r.race_id) === raceId
+                    return (
+                      <button key={r.race_id}
+                        onClick={() => { setRaceId(String(r.race_id)); setShowPicker(false) }}
+                        className={`w-full flex items-center gap-3 pl-4 pr-4 py-3 text-left transition-colors border-b border-border/50 border-l-2 ${isSel ? 'bg-amber-950/40 border-l-accent' : 'border-l-transparent hover:bg-surface-2'}`}>
+                        <span className="font-semibold text-text-primary truncate">{r.name || `Race ${r.race_id}`}</span>
+                        <span className="font-timing text-xs text-accent flex-shrink-0">{r.venue_id}</span>
+                        {r.race_date && <span className="font-timing text-xs text-text-muted ml-auto flex-shrink-0">{new Date(r.race_date).toLocaleDateString()}</span>}
+                      </button>
+                    )
+                  })}
+                </>
+              )}
+            </div>
+          </>
         )}
       </div>
 

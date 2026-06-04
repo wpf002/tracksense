@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import client from '../api/client'
 import { getHorseSummary } from '../api/horses'
+import Icon from '../components/ui/Icon'
 
 const TEMP_WARN_HIGH  = 38.5
 const TEMP_ALERT_HIGH = 39.0
@@ -193,14 +194,20 @@ export default function MobileCheckin() {
               onChange={(e) => setTempInput(e.target.value)}
               className="w-full bg-surface border border-border text-text-primary text-base px-4 py-3 font-timing focus:outline-none focus:border-accent min-h-[52px]"
             />
-            {tempVal != null && !isNaN(tempVal) && (
-              <p className={`text-sm font-timing mt-1 ${tempClass(tempVal)}`}>
-                {tempVal >= TEMP_ALERT_HIGH ? `⚠ HIGH — ${tempVal.toFixed(1)}°C`
-                  : tempVal <= TEMP_ALERT_LOW ? `⚠ LOW — ${tempVal.toFixed(1)}°C`
-                  : tempVal >= TEMP_WARN_HIGH ? `⚑ Elevated — ${tempVal.toFixed(1)}°C`
-                  : `✓ Normal — ${tempVal.toFixed(1)}°C`}
-              </p>
-            )}
+            {tempVal != null && !isNaN(tempVal) && (() => {
+              const isAlert = tempVal >= TEMP_ALERT_HIGH || tempVal <= TEMP_ALERT_LOW
+              const isWarn = tempVal >= TEMP_WARN_HIGH
+              const label = tempVal >= TEMP_ALERT_HIGH ? `HIGH — ${tempVal.toFixed(1)}°C`
+                : tempVal <= TEMP_ALERT_LOW ? `LOW — ${tempVal.toFixed(1)}°C`
+                : tempVal >= TEMP_WARN_HIGH ? `Elevated — ${tempVal.toFixed(1)}°C`
+                : `Normal — ${tempVal.toFixed(1)}°C`
+              return (
+                <p className={`flex items-center gap-1.5 text-sm font-timing mt-1 ${tempClass(tempVal)}`}>
+                  {(isAlert || isWarn) && <Icon name="warning" className="w-3.5 h-3.5 flex-shrink-0" />}
+                  {label}
+                </p>
+              )
+            })()}
           </div>
 
           <div className="flex gap-2 mt-4">

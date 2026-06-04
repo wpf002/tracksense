@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Outlet, useLocation, NavLink as RouterNavLink } from 'react-router-dom'
 import NavLink from './NavLink'
+import Icon from '../ui/Icon'
 
 export default function Shell() {
   const navigate = useNavigate()
@@ -98,11 +99,11 @@ export default function Shell() {
       {/* ── Mobile bottom tab bar (visible only at ≤640px) ───────────── */}
       <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface border-t border-border flex items-stretch h-14">
         {[
-          { to: '/live',     label: 'Race Day', icon: '◉' },
-          { to: '/training', label: 'Training', icon: '🏋' },
-          { to: '/horses',   label: 'Horses',   icon: '🐎' },
-          { to: '/mobile/checkin', label: 'Check-In', icon: '📷' },
-          ...(role === 'admin' ? [{ to: '/builder', label: 'Add Race', icon: '⚙' }] : []),
+          { to: '/live',     label: 'Race Day', icon: 'raceDay' },
+          { to: '/training', label: 'Training', icon: 'training' },
+          { to: '/horses',   label: 'Horses',   icon: 'horses' },
+          { to: '/mobile/checkin', label: 'Check-In', icon: 'checkin' },
+          ...(role === 'admin' ? [{ to: '/builder', label: 'Races', icon: 'races' }] : []),
         ].map(({ to, label, icon }) => {
           const active = location.pathname === to || location.pathname.startsWith(to + '/')
           return (
@@ -110,11 +111,11 @@ export default function Shell() {
               key={to}
               to={to}
               className={[
-                'flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-timing tracking-wide uppercase min-h-[44px] transition-colors',
+                'flex-1 flex flex-col items-center justify-center gap-1 text-[10px] font-timing tracking-wide uppercase min-h-[44px] transition-colors',
                 active ? 'text-accent border-t-2 border-accent -mt-px' : 'text-text-muted',
               ].join(' ')}
             >
-              <span className="text-base leading-none">{icon}</span>
+              <Icon name={icon} className="w-5 h-5" />
               <span>{label}</span>
             </RouterNavLink>
           )

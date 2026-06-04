@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getTrainingRoster } from '../api/training'
 import { listRaces } from '../api/races'
 import DataTable from '../components/ui/DataTable'
+import Icon from '../components/ui/Icon'
 
 const OUTCOME_STYLE = {
   cleared: 'text-green-400',
@@ -151,14 +152,16 @@ export default function TrainingCenter() {
             Training Center
           </h1>
           <p className="text-xs text-text-muted font-timing mt-0.5">
-            Daily roster — {roster.length} horse{roster.length !== 1 ? 's' : ''} · workouts, vet checks, treatments between races
+            Daily Roster — {roster.length} Horse{roster.length !== 1 ? 's' : ''} · Workouts, Vet Checks, Treatments Between Races
           </p>
         </div>
         <button
           onClick={() => refetch()}
-          className="text-xs font-timing uppercase tracking-widest text-text-muted hover:text-accent"
+          aria-label="Refresh roster"
+          title="Refresh"
+          className="text-text-muted hover:text-accent transition-colors p-1"
         >
-          ↺ Refresh
+          <Icon name="refresh" className="w-4 h-4" />
         </button>
       </div>
 
@@ -169,21 +172,23 @@ export default function TrainingCenter() {
         return (
           <div className="border border-amber-800 bg-amber-950/30 p-4 mb-4">
             <p className="text-xs font-semibold uppercase tracking-widest text-accent mb-3">
-              🏇 Running Today at Churchill Downs — {runnersToday.length} horses
+              Running Today at Churchill Downs — {runnersToday.length} horses
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 auto-rows-fr">
               {runnersToday.map(h => (
                 <Link key={h.chip_id} to={`/horses/${h.chip_id}`}
-                  className="flex flex-col gap-0.5 bg-surface border border-border px-3 py-2 hover:border-accent transition-colors">
-                  <span className="font-bold text-text-primary text-sm">{h.name}</span>
-                  <span className="text-[10px] font-timing text-text-muted">
+                  className="flex flex-col gap-1 h-full bg-surface border border-border px-3 py-2.5 hover:border-accent transition-colors">
+                  <span className="font-bold text-text-primary text-sm leading-tight">{h.name}</span>
+                  <span className="text-[10px] font-timing text-text-muted leading-snug">
                     {TODAY_RACE_NAMES[h.chip_id] ?? 'Churchill Downs today'}
                   </span>
-                  {h.latest_vet_check_outcome && (
-                    <span className={`text-[10px] font-timing uppercase font-bold ${
-                      h.latest_vet_check_outcome === 'cleared' ? 'text-green-400' : 'text-red-400'
-                    }`}>Vet: {h.latest_vet_check_outcome}</span>
-                  )}
+                  <span className={`mt-auto text-[10px] font-timing uppercase font-bold ${
+                    h.latest_vet_check_outcome
+                      ? (h.latest_vet_check_outcome === 'cleared' ? 'text-green-400' : 'text-red-400')
+                      : 'text-text-muted'
+                  }`}>
+                    Vet: {h.latest_vet_check_outcome ?? '—'}
+                  </span>
                 </Link>
               ))}
             </div>

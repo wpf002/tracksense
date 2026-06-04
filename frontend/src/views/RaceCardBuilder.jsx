@@ -55,12 +55,13 @@ export default function RaceCardBuilder() {
   })
 
   const inputCls = 'w-full bg-bg border border-border text-text-primary px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors'
+  const selectCls = `${inputCls} ts-select cursor-pointer`
   const labelCls = 'block text-[10px] uppercase tracking-widest text-text-secondary mb-1.5'
 
   return (
-    <div className="p-6 max-w-2xl">
+    <div className="p-6 max-w-3xl mx-auto w-full">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-6 text-center">
         <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase">Races</h1>
         <p className="text-sm text-text-secondary mt-1">
           Create a race card for today's meeting. Entries and results are managed from the Race Day console.
@@ -69,11 +70,16 @@ export default function RaceCardBuilder() {
 
       {/* Form card */}
       <div className="bg-surface border border-border">
-        <div className="px-5 py-4 border-b border-border">
-          <h2 className="text-xs font-semibold uppercase tracking-widest text-text-primary">New Race</h2>
+        <div className="h-0.5 bg-accent" />
+        <div className="px-5 py-4 border-b border-border flex items-center gap-2.5">
+          <span className="text-accent font-timing text-base leading-none">+</span>
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-widest text-text-primary">New Race</h2>
+            <p className="text-[11px] text-text-muted font-timing mt-0.5">Fill in the card details below</p>
+          </div>
         </div>
 
-        <div className="p-5 flex flex-col gap-5">
+        <div className="p-6 flex flex-col gap-5">
           {/* Track */}
           <div>
             <label className={labelCls}>Track</label>
@@ -81,7 +87,7 @@ export default function RaceCardBuilder() {
               setVenueId(e.target.value)
               const v = venues.find(x => x.venue_id === e.target.value)
               if (v) setDistance(String(Math.round(v.total_distance_m)))
-            }} className={inputCls}>
+            }} className={selectCls}>
               {venues.map(v => (
                 <option key={v.venue_id} value={v.venue_id}>
                   {v.name}
@@ -106,14 +112,16 @@ export default function RaceCardBuilder() {
             />
           </div>
 
-          {/* Date / Distance / Surface row */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="col-span-3 sm:col-span-1">
-              <label className={labelCls}>Post Time</label>
-              <input type="datetime-local" value={raceDate}
-                onChange={(e) => setRaceDate(e.target.value)}
-                className={`${inputCls} font-timing`} />
-            </div>
+          {/* Post Time — full width so the value is never cut off */}
+          <div>
+            <label className={labelCls}>Post Time</label>
+            <input type="datetime-local" value={raceDate}
+              onChange={(e) => setRaceDate(e.target.value)}
+              className={`${inputCls} font-timing text-base`} />
+          </div>
+
+          {/* Distance / Surface row */}
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>Distance (m)</label>
               <input type="number" value={distance}
@@ -123,7 +131,7 @@ export default function RaceCardBuilder() {
             </div>
             <div>
               <label className={labelCls}>Surface</label>
-              <select value={surface} onChange={(e) => setSurface(e.target.value)} className={inputCls}>
+              <select value={surface} onChange={(e) => setSurface(e.target.value)} className={selectCls}>
                 {SURFACES.map(s => <option key={s}>{s}</option>)}
               </select>
             </div>
@@ -132,7 +140,7 @@ export default function RaceCardBuilder() {
           {/* Conditions */}
           <div>
             <label className={labelCls}>Conditions <span className="text-text-muted normal-case">(optional)</span></label>
-            <select value={conditions} onChange={(e) => setConditions(e.target.value)} className={inputCls}>
+            <select value={conditions} onChange={(e) => setConditions(e.target.value)} className={selectCls}>
               <option value="">— Select —</option>
               {CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>

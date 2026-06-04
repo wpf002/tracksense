@@ -5,6 +5,9 @@ import {
 } from '../api/compliance'
 import StatBadge from '../components/ui/StatBadge'
 import DataTable from '../components/ui/DataTable'
+import Icon from '../components/ui/Icon'
+
+const TABLE_LIMIT = 20
 
 const CATEGORY_LABELS = {
   WORKOUTS: 'Timed Workout',
@@ -67,6 +70,7 @@ export default function ComplianceDashboard() {
   const [selectedId, setSelectedId] = useState(null)
   const [filterStatus, setFilterStatus] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
+  const [viewAll, setViewAll] = useState(false)
 
   const { data: allSubs = [], isLoading } = useQuery({
     queryKey: ['hisa-submissions', filterStatus, filterCategory],
@@ -103,6 +107,14 @@ export default function ComplianceDashboard() {
   const pending = allSubs.filter((s) => s.status === 'pending')
   const submitted = allSubs.filter((s) => s.status === 'submitted')
   const accepted = allSubs.filter((s) => s.status === 'accepted')
+
+  // Newest first, then show the latest 20 unless the user opts to see all
+  const sortedSubs = [...allSubs].sort((a, b) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0
+    return tb !== ta ? tb - ta : (b.id - a.id)
+  })
+  const visibleSubs = viewAll ? sortedSubs : sortedSubs.slice(0, TABLE_LIMIT)
 
   const columns = [
     {
@@ -157,27 +169,23 @@ export default function ComplianceDashboard() {
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase">Compliance</h1>
-            <p className="text-sm text-text-secondary mt-1">
-              HISA submission queue — every operational record generates a submission automatically. Review and download JSON payloads for portal upload.
-            </p>
+      <div className="mb-6">
+        <div className="flex items-start justify-between gap-6">
+          <h1 className="text-xl font-bold tracking-tight text-text-primary uppercase">Compliance</h1>
+          <div className="flex-shrink-0">
+            <button
+              onClick={() => buildMut.mutate()}
+              disabled={buildMut.isPending}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-bold uppercase tracking-widest border border-accent text-accent bg-amber-950/30 hover:bg-amber-950 transition-colors disabled:opacity-40 whitespace-nowrap"
+            >
+              <Icon name="refresh" className={`w-4 h-4 ${buildMut.isPending ? 'animate-spin' : ''}`} />
+              {buildMut.isPending ? 'Scanning…' : 'Check for new records'}
+            </button>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <button
-            onClick={() => buildMut.mutate()}
-            disabled={buildMut.isPending}
-            className="px-4 py-2 text-sm font-semibold uppercase tracking-widest border border-border text-text-secondary hover:border-accent hover:text-accent transition-colors disabled:opacity-40"
-          >
-            {buildMut.isPending ? 'Scanning…' : '↺ Sync'}
-          </button>
-          <span className="text-[10px] text-text-muted font-timing text-right max-w-[160px] leading-tight">
-            Scans all records for new submissions not yet in the queue
-          </span>
-        </div>
+        <p className="text-sm text-text-secondary mt-1 whitespace-normal lg:whitespace-nowrap">
+          Submissions are assembled from operational data automatically. Review and download each payload for manual portal upload until live API integration is available.
+        </p>
       </div>
 
       {buildMut.data && (
@@ -189,7 +197,7 @@ export default function ComplianceDashboard() {
       {/* Urgent action items */}
       {overdue.length > 0 && (
         <div className="border border-red-800 bg-red-950/30 px-4 py-3 mb-4 flex items-start gap-3">
-          <span className="text-red-400 text-lg mt-0.5">⚠</span>
+          <Icon name="warning" className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
           <div>
             <p className="text-red-400 text-sm font-semibold">
               {overdue.length} overdue submission{overdue.length !== 1 ? 's' : ''} — deadline passed
@@ -216,7 +224,7 @@ export default function ComplianceDashboard() {
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
-          className="bg-bg border border-border text-text-primary text-xs px-2 py-1.5 focus:outline-none focus:border-accent"
+          className="ts-select cursor-pointer bg-bg border border-border text-text-primary text-xs px-2 py-1.5 focus:outline-none focus:border-accent"
         >
           <option value="">All statuses</option>
           {['pending', 'submitted', 'accepted', 'rejected', 'needs_correction'].map((s) => (
@@ -226,7 +234,7 @@ export default function ComplianceDashboard() {
         <select
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value)}
-          className="bg-bg border border-border text-text-primary text-xs px-2 py-1.5 focus:outline-none focus:border-accent"
+          className="ts-select cursor-pointer bg-bg border border-border text-text-primary text-xs px-2 py-1.5 focus:outline-none focus:border-accent"
         >
           <option value="">All types</option>
           {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
@@ -245,10 +253,25 @@ export default function ComplianceDashboard() {
 
       {/* Submissions table */}
       <div className="border border-border bg-surface">
-        <div className="px-4 py-2 border-b border-border">
+        <div className="px-4 py-2 border-b border-border flex items-center justify-between gap-3">
           <span className="text-xs text-text-muted uppercase tracking-widest font-semibold">
             Submissions
+            {allSubs.length > 0 && (
+              <span className="ml-2 text-text-muted normal-case tracking-normal font-timing">
+                {viewAll ? `${allSubs.length} total` : `latest ${Math.min(TABLE_LIMIT, allSubs.length)} of ${allSubs.length}`}
+              </span>
+            )}
           </span>
+          {allSubs.length > TABLE_LIMIT && (
+            <select
+              value={viewAll ? 'all' : 'latest'}
+              onChange={(e) => setViewAll(e.target.value === 'all')}
+              className="ts-select cursor-pointer bg-bg border border-border text-text-primary text-[11px] px-2 py-1 focus:outline-none focus:border-accent"
+            >
+              <option value="latest">Latest {TABLE_LIMIT}</option>
+              <option value="all">All ({allSubs.length})</option>
+            </select>
+          )}
         </div>
         {isLoading ? (
           <p className="px-4 py-6 text-text-muted text-xs font-timing text-center tracking-widest">Loading…</p>
@@ -256,12 +279,12 @@ export default function ComplianceDashboard() {
           <div className="px-4 py-8 text-center">
             <p className="text-text-muted text-sm mb-3">No submissions yet.</p>
             <p className="text-xs text-text-muted font-timing">
-              Click <strong className="text-text-primary">↺ Build Missing</strong> to
-              scan all operational records and create pending submissions.
+              Click <strong className="text-text-primary">Check for new records</strong> to
+              scan all operational data and create pending submissions.
             </p>
           </div>
         ) : (
-          <DataTable columns={columns} rows={allSubs.map((s) => ({ ...s, id: s.id }))} emptyMessage="" />
+          <DataTable columns={columns} rows={visibleSubs.map((s) => ({ ...s, id: s.id }))} emptyMessage="" />
         )}
       </div>
 

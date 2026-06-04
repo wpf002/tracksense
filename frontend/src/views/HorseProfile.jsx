@@ -13,6 +13,7 @@ import {
 } from '../api/horses'
 import DataTable from '../components/ui/DataTable'
 import TimingDisplay from '../components/ui/TimingDisplay'
+import Icon from '../components/ui/Icon'
 import StatBadge from '../components/ui/StatBadge'
 import { getVetChecks, addVetCheck, getOwnerReport } from '../api/training'
 
@@ -145,10 +146,6 @@ function HorseList() {
         </h1>
         <span className="text-xs text-text-muted font-timing">{horses.length} registered horses</span>
       </div>
-      <p className="text-xs text-text-muted font-timing mb-5">
-        Every covered horse, identified by Jockey Club LF microchip. Click any horse for their full profile — workouts, vet records, race history, treatments, and compliance status.
-      </p>
-
       <input
         type="text"
         placeholder="Search by name, trainer, owner, or chip ID…"
@@ -1010,8 +1007,8 @@ function HorseDetail({ chip_id }) {
             columns={[
               { key: 'treatment_date', label: 'Date', render: (r) => <span className="font-timing text-xs text-text-muted">{r.treatment_date}</span> },
               { key: 'substance', label: 'Substance', render: (r) => (
-                <span className={`font-medium ${r.is_prohibited ? 'text-red-400' : 'text-text-primary'}`}>
-                  {r.substance}{r.is_prohibited && ' ⚠'}
+                <span className={`inline-flex items-center gap-1 font-medium ${r.is_prohibited ? 'text-red-400' : 'text-text-primary'}`}>
+                  {r.substance}{r.is_prohibited && <Icon name="warning" className="w-3.5 h-3.5" />}
                 </span>
               )},
               { key: 'dose', label: 'Dose/Route', render: (r) => <span className="text-xs text-text-muted">{r.dose ?? '—'}{r.route ? ` (${r.route})` : ''}</span> },

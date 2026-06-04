@@ -11,8 +11,8 @@ export default {
         accent: '#f59e0b',
         'accent-dim': '#d97706',
         'text-primary': '#f5f5f5',
-        'text-secondary': '#9ca3af',
-        'text-muted': '#6b7280',
+        'text-secondary': '#c2cad6',
+        'text-muted': '#949daa',
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace'],

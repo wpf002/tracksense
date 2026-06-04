@@ -18,6 +18,39 @@
     color: #f5f5f5;
     font-family: system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
+    /* Render native controls (date pickers, select menus, scrollbars) in dark mode */
+    color-scheme: dark;
+  }
+
+  /* Tint the native datetime calendar trigger amber so it matches the theme */
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.55;
+    filter: invert(64%) sepia(72%) saturate(1352%) hue-rotate(2deg) brightness(101%) contrast(98%);
+    transition: opacity 0.15s ease;
+  }
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+  input[type="date"]::-webkit-calendar-picker-indicator:hover,
+  input[type="time"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
+}
+
+@layer components {
+  /* Themed <select>: removes the OS chevron and draws an amber one to match the app */
+  .ts-select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23f59e0b' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 7.5l5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.85rem center;
+    background-size: 14px;
+    /* !important so it wins over Tailwind px-* utilities and the chevron never
+       overlaps the text */
+    padding-right: 2.5rem !important;
   }
 }
 
