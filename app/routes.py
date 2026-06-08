@@ -1445,6 +1445,7 @@ def list_hisa_submissions(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_compliance_or_admin),
 ):
+    from app import hisa_meta
     subs = crud.get_hisa_submissions(db, status=status, rule_category=rule_category,
                                       tenant_id=current_user.tenant_id)
     return {
@@ -1459,10 +1460,21 @@ def list_hisa_submissions(
                 "deadline_at": s.deadline_at.isoformat() if s.deadline_at else None,
                 "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
+                # report-type metadata (responsible party + submission channel)
+                "responsible_party": hisa_meta.meta_for(s.rule_category)["responsible_party"],
+                "channel": hisa_meta.meta_for(s.rule_category)["channel"],
             }
             for s in subs
         ]
     }
+
+
+@router.get("/hisa/report-types")
+def list_hisa_report_types(_: User = Depends(require_compliance_or_admin)):
+    """Registry of HISA report types: responsible party, deadline, and whether a
+    software vendor can submit programmatically today vs. portal-export only."""
+    from app import hisa_meta
+    return {"report_types": hisa_meta.REPORT_TYPES}
 
 
 @router.get("/hisa/submissions/{submission_id}")
@@ -1472,6 +1484,8 @@ def get_hisa_submission(submission_id: int, db: Session = Depends(get_db),
     sub = db.get(HISASubmissionModel, submission_id)
     if not sub:
         raise HTTPException(404, f"Submission {submission_id} not found")
+    from app import hisa_meta
+    meta = hisa_meta.meta_for(sub.rule_category)
     return {
         "id": sub.id,
         "rule_category": sub.rule_category,
@@ -1484,6 +1498,11 @@ def get_hisa_submission(submission_id: int, db: Session = Depends(get_db),
         "payload_json": sub.payload_json,
         "response_json": sub.response_json,
         "created_at": sub.created_at.isoformat() if sub.created_at else None,
+        # report-type metadata
+        "responsible_party": meta["responsible_party"],
+        "channel": meta["channel"],
+        "deadline_rule": meta["deadline"],
+        "rule_ref": meta["rule_ref"],
     }
 
 

@@ -16,6 +16,8 @@ const CATEGORY_LABELS = {
   SURFACE: 'Surface Condition',
   STEWARDS_RULING: "Stewards' Ruling",
   CHECKIN: 'Pre-race Check-In',
+  SCRATCH: 'Scratch',
+  CROP_VIOLATION: 'Riding Crop Violation',
 }
 
 const STATUS_STYLE = {
@@ -48,14 +50,30 @@ function PayloadModal({ submission, onClose }) {
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-lg">×</button>
         </div>
         <div className="flex-1 overflow-auto p-4">
-          <div className="flex items-center gap-3 mb-3">
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
             <StatusBadge status={submission.status} />
+            {submission.channel && (
+              <span className={`text-[10px] font-timing font-bold uppercase tracking-wide px-1.5 py-0.5 border ${
+                submission.channel === 'vendor'
+                  ? 'border-green-700 bg-green-950 text-green-400'
+                  : 'border-border text-text-muted'
+              }`}>
+                {submission.channel === 'vendor' ? 'Vendor-submittable' : 'Portal export'}
+              </span>
+            )}
             {submission.deadline_at && (
               <span className="text-xs font-timing text-text-muted">
                 Deadline: {new Date(submission.deadline_at).toLocaleString()}
               </span>
             )}
           </div>
+          {(submission.responsible_party || submission.rule_ref) && (
+            <div className="text-xs font-timing text-text-muted mb-3 leading-relaxed">
+              {submission.responsible_party && <div>Responsible party: <span className="text-text-secondary">{submission.responsible_party}</span></div>}
+              {submission.deadline_rule && <div>Filing window: <span className="text-text-secondary">{submission.deadline_rule}</span></div>}
+              {submission.rule_ref && <div>Rule: <span className="text-text-secondary">{submission.rule_ref}</span></div>}
+            </div>
+          )}
           <pre className="text-xs text-text-muted font-timing bg-bg border border-border p-3 overflow-auto whitespace-pre-wrap">
             {JSON.stringify(payload, null, 2)}
           </pre>
@@ -120,7 +138,14 @@ export default function ComplianceDashboard() {
     {
       key: 'rule_category',
       label: 'Report Type',
-      render: (r) => <span className="text-text-primary text-sm">{CATEGORY_LABELS[r.rule_category] ?? r.rule_category}</span>,
+      render: (r) => (
+        <div className="flex flex-col">
+          <span className="text-text-primary text-sm">{CATEGORY_LABELS[r.rule_category] ?? r.rule_category}</span>
+          {r.responsible_party && (
+            <span className="text-[10px] font-timing text-text-muted">Filed by: {r.responsible_party}</span>
+          )}
+        </div>
+      ),
     },
     {
       key: 'horse_chip_id',
@@ -157,9 +182,12 @@ export default function ComplianceDashboard() {
             <button
               onClick={(e) => { e.stopPropagation(); submitMut.mutate(r.id) }}
               disabled={submitMut.isPending}
+              title={r.channel === 'vendor'
+                ? 'Submit directly to HISA (vendor integration)'
+                : 'Mark as exported & uploaded to the HISA portal manually'}
               className="text-xs font-timing font-bold uppercase tracking-widest border border-accent text-accent hover:bg-amber-950 px-2 py-0.5 transition-colors disabled:opacity-40"
             >
-              Submit →
+              {r.channel === 'vendor' ? 'Submit →' : 'Export →'}
             </button>
           )}
         </div>
@@ -184,7 +212,7 @@ export default function ComplianceDashboard() {
           </div>
         </div>
         <p className="text-sm text-text-secondary mt-1 whitespace-normal lg:whitespace-nowrap">
-          Submissions are assembled from operational data automatically. Review and download each payload for manual portal upload until live API integration is available.
+          Submissions are assembled from operational data automatically. Veterinary treatment records can be submitted to HISA directly; all other report types are exported for manual portal upload by the responsible party.
         </p>
       </div>
 
