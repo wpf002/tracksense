@@ -873,9 +873,10 @@ def seed_surface_conditions(session, today: date) -> int:
 
 
 def seed_stewards_ruling(session, today: date) -> int:
-    """A stewards' ruling from yesterday's card — 48h deadline looming."""
+    """A stewards' ruling whose 48h filing deadline has just passed — drives the
+    one 'overdue submission' alert on the Compliance dashboard."""
     from datetime import timezone
-    ruling_date = datetime.combine(today - timedelta(days=1), time(16, 30)).replace(tzinfo=timezone.utc)
+    ruling_date = datetime.combine(today - timedelta(days=3), time(16, 30)).replace(tzinfo=timezone.utc)
     deadline = ruling_date + timedelta(hours=48)
     ruling = StewardsRuling(
         ruling_date=ruling_date,
@@ -974,23 +975,72 @@ def seed_hisa_submissions(session, today: date) -> int:
         ))
         created += 1
 
-    # Mark some older workout submissions as already accepted (shows accepted count)
-    older_workout_subs = session.query(HISASubmission).filter(
-        HISASubmission.rule_category == "WORKOUTS",
-        HISASubmission.status == "pending",
-    ).limit(40).all()
-    for sub in older_workout_subs[:25]:
-        sub.status = "accepted"
-        from datetime import timezone
-        sub.submitted_at = datetime.now(timezone.utc) - timedelta(days=random.randint(1, 6))
+    # ── Realistic status mix ─────────────────────────────────────────────
+    # A real compliance desk has most reports already filed and accepted; only
+    # the latest race's check-ins and brand-new items are still pending. Assign
+    # statuses by recency / race order so the queue reads like a live operation
+    # rather than a giant backlog (target: ~10 pending, ~15 submitted, rest
+    # accepted, with the one overdue stewards' ruling left pending for the alert).
+    from datetime import timezone
 
-    # Mark a few test-barn submissions as accepted too
-    older_checkin_subs = session.query(HISASubmission).filter(
-        HISASubmission.rule_category == "CHECKIN",
-        HISASubmission.status == "pending",
-    ).limit(20).all()
-    for sub in older_checkin_subs[:10]:
-        sub.status = "accepted"
+    def _filed(days_ago):
+        return datetime.now(timezone.utc) - timedelta(days=days_ago)
+
+    # Workouts: most recent day still in flight (submitted), older ones accepted
+    wsubs = session.query(HISASubmission, WorkoutRecord).join(
+        WorkoutRecord, HISASubmission.source_record_id == WorkoutRecord.id
+    ).filter(HISASubmission.rule_category == "WORKOUTS").all()
+    if wsubs:
+        latest_wd = max(w.workout_date for _, w in wsubs)
+        for sub, w in wsubs:
+            if w.workout_date == latest_wd:
+                sub.status, sub.submitted_at = "submitted", _filed(1)
+            else:
+                sub.status, sub.submitted_at = "accepted", _filed(random.randint(2, 6))
+
+    # Check-ins: earlier races already filed/accepted, latest race(s) pending
+    csubs = session.query(HISASubmission, CheckInRecord).join(
+        CheckInRecord, HISASubmission.source_record_id == CheckInRecord.id
+    ).filter(HISASubmission.rule_category == "CHECKIN").all()
+    if csubs:
+        race_ids = {c.race_id for _, c in csubs if c.race_id}
+        ordered = [r.id for r in session.query(Race)
+                   .filter(Race.id.in_(race_ids)).order_by(Race.race_date).all()]
+        cut = max(1, int(len(ordered) * 0.6))
+        accepted_races = set(ordered[:cut])
+        for sub, c in csubs:
+            if c.race_id in accepted_races:
+                sub.status, sub.submitted_at = "accepted", _filed(0)
+            else:
+                sub.status, sub.submitted_at = "pending", None
+
+    # Treatments: newest pending, next filed, rest accepted
+    tsubs = session.query(HISASubmission, TreatmentRecord).join(
+        TreatmentRecord, HISASubmission.source_record_id == TreatmentRecord.id
+    ).filter(HISASubmission.rule_category == "ADMC_TREATMENT") \
+     .order_by(TreatmentRecord.treatment_date.desc()).all()
+    for i, (sub, _t) in enumerate(tsubs):
+        if i == 0:
+            sub.status, sub.submitted_at = "pending", None
+        elif i == 1:
+            sub.status, sub.submitted_at = "submitted", _filed(1)
+        else:
+            sub.status, sub.submitted_at = "accepted", _filed(random.randint(2, 5))
+
+    # Surface logs: today's pending, the rest accepted
+    ssubs = session.query(HISASubmission, SurfaceConditionLog).join(
+        SurfaceConditionLog, HISASubmission.source_record_id == SurfaceConditionLog.id
+    ).filter(HISASubmission.rule_category == "SURFACE") \
+     .order_by(SurfaceConditionLog.logged_date.desc()).all()
+    for i, (sub, _sl) in enumerate(ssubs):
+        if i == 0:
+            sub.status, sub.submitted_at = "pending", None
+        else:
+            sub.status, sub.submitted_at = "accepted", _filed(random.randint(1, 4))
+
+    # Scratch already filed; stewards' ruling intentionally left pending (overdue)
+    for sub in session.query(HISASubmission).filter_by(rule_category="SCRATCH").all():
+        sub.status, sub.submitted_at = "submitted", _filed(1)
 
     session.commit()
     return created
