@@ -35,7 +35,7 @@ from app.models import (
     WorkoutRecord, CheckInRecord, TestBarnRecord,
     TreatmentRecord, VetCheckRecord, StewardsRuling,
     SurfaceConditionLog, HISASubmission,
-    ScratchRecord,
+    ScratchRecord, BiosensorReading,
 )
 from app import hisa_builder
 import json
@@ -956,6 +956,36 @@ def seed_stewards_ruling(session, today: date) -> int:
     return 1
 
 
+def seed_biosensors(session, race_ids, today: date) -> int:
+    """A short pre-race wearable timeseries for today's runners (Step 5 demo).
+
+    Realistic thoroughbred values: resting HR ~40 bpm ramping to ~95 during
+    paddock warm-up, body temp ~37.6–38.3 °C, stride frequency rising as horses
+    move toward post.
+    """
+    from datetime import timezone
+    if not race_ids:
+        return 0
+    pairs = (session.query(CheckInRecord.horse_chip_id, CheckInRecord.race_id)
+             .filter(CheckInRecord.race_id.in_(race_ids)).distinct().all())
+    base = datetime.combine(today, time(12, 0)).replace(tzinfo=timezone.utc)
+    total = 0
+    for i, (chip, race_id) in enumerate(pairs):
+        for k in range(8):
+            ts = base + timedelta(minutes=15 * k, seconds=i)
+            hr = 40 + k * 7 + random.randint(-3, 4)                       # resting -> warm-up
+            temp = round(37.6 + k * 0.07 + random.uniform(-0.1, 0.1), 1)
+            stride = round(0.0 if k < 5 else 1.8 + random.uniform(0, 0.6), 2)
+            session.add(BiosensorReading(
+                horse_chip_id=chip, race_id=race_id, recorded_at=ts,
+                heart_rate_bpm=hr, temperature_c=temp, stride_hz=stride,
+                source="wearable",
+            ))
+            total += 1
+    session.commit()
+    return total
+
+
 def seed_hisa_submissions(session, today: date) -> int:
     """Pre-build HISA submissions from recent workouts, check-ins, and treatments."""
     created = 0
@@ -1213,6 +1243,9 @@ def run(force: bool = False) -> None:
         print("[seed] Seeding today's race check-ins...")
         n_demo_checkins = seed_demo_checkins(session, today, demo_day["race_ids"])
 
+        print("[seed] Seeding biosensor readings for today's runners...")
+        n_biosensors = seed_biosensors(session, demo_day["race_ids"], today)
+
         print("[seed] Seeding surface condition logs (HISA Rule 2151/2154)...")
         n_surface = seed_surface_conditions(session, today)
 
@@ -1240,6 +1273,7 @@ def run(force: bool = False) -> None:
         print(f"Treatment records: {n_treatments}")
         print(f"Check-in records:  {n_checkins + n_demo_checkins}")
         print(f"Test barn records: {n_test_barn}")
+        print(f"Biosensor reads:   {n_biosensors} (today's runners)")
         print(f"Surface logs:      {n_surface} (Churchill, 5 days)")
         print(f"HISA submissions:  {n_hisa} (pre-built)")
         print(f"")
