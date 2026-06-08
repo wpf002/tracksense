@@ -65,6 +65,15 @@ OWNERS = [
     "Spendthrift Farm",            "Shortleaf Stable",
 ]
 
+# Dam (mother) names — part of HISA's Covered-Horse identity key
+DAMS = [
+    "Somethingroyal",    "Vaguely Noble",     "Kind",              "Helsinge",
+    "Littleprincessemma","Stage Magic",       "Vertigineux",       "Concentric",
+    "Urban Sea",         "Wind In Her Hair",  "Bubbler",           "Better Than Honour",
+    "Take Charge Lady",  "Leslie's Lady",     "Toussaud",          "Serena's Song",
+    "Hasili",            "Fall Aspen",        "Aviance",           "Weekend Surprise",
+]
+
 # Jockeys used only in workout notes (no jockey field on RaceEntry)
 JOCKEYS = [
     "John Velazquez",    "Javier Castellano", "Irad Ortiz Jr.",    "Luis Saez",
@@ -346,8 +355,10 @@ def seed_horses(session) -> dict:
             name=h["name"],
             breed=h["breed"],
             date_of_birth=h["dob"],
+            dam_name=DAMS[idx % len(DAMS)],
             implant_date="2023-06-01",
             implant_vet="Dr. Harriet Clarke",
+            # covered_since backfilled from first workout after races/workouts are seeded
         )
         session.add(horse)
         session.add(Owner(  horse_chip_id=h["chip_id"], owner_name=owner_name,   from_date="2023-06-01"))
@@ -639,14 +650,40 @@ def seed_test_barn(session, race_records: list) -> int:
 # HISA submissions, and today's race card narrative
 # ------------------------------------------------------------------ #
 
+# Attending-vet contact details (HISA Rule 2251(b)(04) requires vet phone + email)
+VET_CONTACTS = {
+    "Dr. Sarah Chen":  {"phone": "(502) 555-0142", "email": "s.chen@bluegrassequine.vet"},
+    "Dr. Marcus Webb": {"phone": "(859) 555-0188", "email": "m.webb@churchillvet.com"},
+    "Dr. Priya Nair":  {"phone": "(502) 555-0207", "email": "p.nair@derbycityequine.vet"},
+}
+
 DEMO_TREATMENTS = [
-    # Regular NSAID use — common, not prohibited
-    {"horse_idx": 0, "days_ago": 3, "substance": "Phenylbutazone (Bute)", "dose": "2 g oral", "route": "oral",     "withdrawal": 24, "vet": "Dr. Sarah Chen",   "by": "Dr. Sarah Chen",   "prohibited": False, "notes": "Pre-workout soreness management"},
-    {"horse_idx": 1, "days_ago": 5, "substance": "Phenylbutazone (Bute)", "dose": "4.4 mg/kg IV", "route": "IV",   "withdrawal": 48, "vet": "Dr. Marcus Webb",  "by": "Dr. Marcus Webb",  "prohibited": False, "notes": "Post-workout treatment, cleared for race"},
-    {"horse_idx": 2, "days_ago": 1, "substance": "Furosemide (Lasix)",    "dose": "250 mg IV",    "route": "IV",   "withdrawal": 24, "vet": "Dr. Priya Nair",   "by": "Dr. Priya Nair",   "prohibited": False, "notes": "Race-day Lasix — approved HISA exemption"},
-    {"horse_idx": 4, "days_ago": 7, "substance": "Omeprazole",            "dose": "4 mg/kg oral", "route": "oral", "withdrawal": 0,  "vet": "Dr. Sarah Chen",   "by": "Trainer",          "prohibited": False, "notes": "Gastric ulcer prevention, routine"},
-    {"horse_idx": 6, "days_ago": 2, "substance": "Triamcinolone",         "dose": "12 mg IA",     "route": "IA",   "withdrawal": 0,  "vet": "Dr. Marcus Webb",  "by": "Dr. Marcus Webb",  "prohibited": False, "notes": "Right hock joint injection — cleared by vet"},
-    {"horse_idx": 9, "days_ago": 4, "substance": "Dexamethasone",         "dose": "20 mg IV",     "route": "IV",   "withdrawal": 48, "vet": "Dr. Priya Nair",   "by": "Dr. Priya Nair",   "prohibited": False, "notes": "Inflammatory response post-workout"},
+    # Each carries the Rule 2251(b) detail: time of dose, frequency, duration,
+    # clinical diagnosis, condition treated, and any procedure.
+    {"horse_idx": 0, "days_ago": 3, "time": "06:30", "substance": "Phenylbutazone (Bute)", "dose": "2 g", "route": "oral",
+     "frequency": "Once daily", "duration": "3 days", "withdrawal": 24, "vet": "Dr. Sarah Chen", "by": "Dr. Sarah Chen", "prohibited": False,
+     "diagnosis": "Mild bilateral forelimb soreness on flexion", "condition": "Musculoskeletal soreness", "procedure": None,
+     "notes": "Pre-workout soreness management"},
+    {"horse_idx": 1, "days_ago": 5, "time": "16:10", "substance": "Phenylbutazone (Bute)", "dose": "4.4 mg/kg", "route": "IV",
+     "frequency": "Single dose", "duration": "1 day", "withdrawal": 48, "vet": "Dr. Marcus Webb", "by": "Dr. Marcus Webb", "prohibited": False,
+     "diagnosis": "Post-exertional inflammation, no lameness", "condition": "Post-workout inflammation", "procedure": None,
+     "notes": "Post-workout treatment, cleared for race"},
+    {"horse_idx": 2, "days_ago": 1, "time": "11:45", "substance": "Furosemide (Lasix)", "dose": "250 mg", "route": "IV",
+     "frequency": "Race day, once", "duration": "1 day", "withdrawal": 24, "vet": "Dr. Priya Nair", "by": "Dr. Priya Nair", "prohibited": False,
+     "diagnosis": "History of exercise-induced pulmonary hemorrhage", "condition": "EIPH prophylaxis", "procedure": None,
+     "notes": "Race-day Lasix — approved HISA exemption"},
+    {"horse_idx": 4, "days_ago": 7, "time": "07:15", "substance": "Omeprazole", "dose": "4 mg/kg", "route": "oral",
+     "frequency": "Once daily", "duration": "28 days", "withdrawal": 0, "vet": "Dr. Sarah Chen", "by": "Trainer", "prohibited": False,
+     "diagnosis": "Grade 2 squamous gastric ulceration on scope", "condition": "Equine gastric ulcer syndrome", "procedure": "Gastroscopy (diagnostic)",
+     "notes": "Gastric ulcer prevention, routine"},
+    {"horse_idx": 6, "days_ago": 2, "time": "09:00", "substance": "Triamcinolone", "dose": "12 mg", "route": "Intra-articular",
+     "frequency": "Single injection", "duration": "1 day", "withdrawal": 0, "vet": "Dr. Marcus Webb", "by": "Dr. Marcus Webb", "prohibited": False,
+     "diagnosis": "Mild effusion, right tarsocrural joint", "condition": "Tarsal joint inflammation", "procedure": "Intra-articular injection, right hock",
+     "notes": "Right hock joint injection — cleared by vet"},
+    {"horse_idx": 9, "days_ago": 4, "time": "15:40", "substance": "Dexamethasone", "dose": "20 mg", "route": "IV",
+     "frequency": "Single dose", "duration": "1 day", "withdrawal": 48, "vet": "Dr. Priya Nair", "by": "Dr. Priya Nair", "prohibited": False,
+     "diagnosis": "Generalized post-exertional inflammatory response", "condition": "Systemic inflammation", "procedure": None,
+     "notes": "Inflammatory response post-workout"},
 ]
 
 DEMO_VET_CHECKS = [
@@ -670,15 +707,24 @@ def seed_treatments(session, today: date) -> int:
     for t in DEMO_TREATMENTS:
         h = HORSES[t["horse_idx"]]
         treatment_date = (today - timedelta(days=t["days_ago"])).isoformat()
+        contact = VET_CONTACTS.get(t["vet"], {})
         session.add(TreatmentRecord(
             horse_chip_id=h["chip_id"],
             treatment_date=treatment_date,
+            treatment_time=t.get("time"),
             substance=t["substance"],
             dose=t["dose"],
             route=t["route"],
+            frequency=t.get("frequency"),
+            duration=t.get("duration"),
             withdrawal_time_hours=t["withdrawal"],
+            diagnosis=t.get("diagnosis"),
+            condition_treated=t.get("condition"),
+            procedure=t.get("procedure"),
             prescribed_by=t["vet"],
             administered_by=t["by"],
+            vet_phone=contact.get("phone"),
+            vet_email=contact.get("email"),
             is_prohibited=t["prohibited"],
             notes=t["notes"],
         ))
@@ -1135,6 +1181,19 @@ def run(force: bool = False) -> None:
 
         print("[seed] Generating workout records...")
         n_workouts = seed_workouts(session, race_records, today)
+
+        # HISA coverage begins on the date of a horse's first timed-and-reported
+        # workout — backfill covered_since from the earliest workout per horse.
+        from sqlalchemy import func as _func
+        first_workouts = dict(
+            session.query(WorkoutRecord.horse_chip_id, _func.min(WorkoutRecord.workout_date))
+                   .group_by(WorkoutRecord.horse_chip_id).all()
+        )
+        for chip_id, first_wd in first_workouts.items():
+            h = session.get(Horse, chip_id)
+            if h and first_wd:
+                h.covered_since = first_wd
+        session.commit()
 
         print("[seed] Generating check-in records...")
         n_checkins = seed_checkins(session, race_records)

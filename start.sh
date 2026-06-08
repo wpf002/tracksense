@@ -69,6 +69,34 @@ if os.path.exists(db):
             con.commit()
             print(f"[schema] Added {col} column to workout_records.")
 
+    # horses — HISA Covered-Horse identity fields
+    cols = [r[1] for r in con.execute("PRAGMA table_info(horses)").fetchall()]
+    horses_add = {"dam_name": "VARCHAR(128)", "covered_since": "VARCHAR(10)"}
+    for col, decl in horses_add.items():
+        if col not in cols:
+            con.execute(f"ALTER TABLE horses ADD COLUMN {col} {decl}")
+            con.commit()
+            print(f"[schema] Added {col} column to horses.")
+
+    # treatment_records — HISA Rule 2251(b) fields
+    cols = [r[1] for r in con.execute("PRAGMA table_info(treatment_records)").fetchall()] if \
+        con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='treatment_records'").fetchone() else []
+    treatment_add = {
+        "treatment_time": "VARCHAR(8)",
+        "frequency": "VARCHAR(64)",
+        "duration": "VARCHAR(64)",
+        "diagnosis": "TEXT",
+        "condition_treated": "VARCHAR(200)",
+        "procedure": "TEXT",
+        "vet_phone": "VARCHAR(32)",
+        "vet_email": "VARCHAR(128)",
+    }
+    for col, decl in treatment_add.items():
+        if cols and col not in cols:
+            con.execute(f"ALTER TABLE treatment_records ADD COLUMN {col} {decl}")
+            con.commit()
+            print(f"[schema] Added {col} column to treatment_records.")
+
     # Phase 3 — HISA reporting tables
     for tbl, ddl in [
         ("treatment_records", """

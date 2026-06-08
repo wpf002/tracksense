@@ -35,10 +35,14 @@ class Tenant(Base):
 class Horse(Base):
     __tablename__ = "horses"
 
-    chip_id: Mapped[str] = mapped_column(String, primary_key=True)  # Jockey Club LF microchip (ISO 11784/11785, 15-digit)
+    chip_id: Mapped[str] = mapped_column(String, primary_key=True)  # ISO 11784/11785 microchip — internal join key, NOT HISA's registration key
     name: Mapped[str] = mapped_column(String, nullable=False)
     breed: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     date_of_birth: Mapped[Optional[str]] = mapped_column(String, nullable=True)   # ISO date string
+    # HISA Covered-Horse identity: HISA keys a horse by name + year of birth + dam + owner,
+    # and coverage begins on the date of the horse's first timed-and-reported workout.
+    dam_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    covered_since: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # ISO date of first timed workout
     implant_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)    # ISO date string
     implant_vet: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     racing_api_horse_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -331,12 +335,20 @@ class TreatmentRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     horse_chip_id: Mapped[str] = mapped_column(String, ForeignKey("horses.chip_id"), nullable=False, index=True)
     treatment_date: Mapped[str] = mapped_column(String(10), nullable=False)          # YYYY-MM-DD
+    treatment_time: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)   # HH:MM — Rule 2251(b) requires date AND time of dose
     substance: Mapped[str] = mapped_column(String(200), nullable=False)
     dose: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     route: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)         # IV/IM/oral/topical
+    frequency: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)       # Rule 2251(b)(08)
+    duration: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)        # Rule 2251(b)(08)
     withdrawal_time_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    prescribed_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    diagnosis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)             # clinical diagnosis / diagnostic responses
+    condition_treated: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    procedure: Mapped[Optional[str]] = mapped_column(Text, nullable=True)             # non-surgical / surgical procedures w/ timing
+    prescribed_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # attending veterinarian
     administered_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    vet_phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)       # Rule 2251(b)(04) vet contact
+    vet_email: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     race_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("races.id"), nullable=True, index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_prohibited: Mapped[bool] = mapped_column(Boolean, default=False)

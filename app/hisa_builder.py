@@ -63,30 +63,69 @@ def build_workout_submission(workout, horse=None) -> dict:
 # ADMC — Treatment / Medication Record
 # ------------------------------------------------------------------ #
 
+def _current_trainer(horse) -> str:
+    """Best-effort current trainer name (the HISA 'Responsible Person')."""
+    if horse is None:
+        return None
+    trainers = getattr(horse, "trainers", None) or []
+    # prefer an open assignment (no to_date), else the last one on file
+    current = next((t for t in trainers if getattr(t, "to_date", None) in (None, "")), None)
+    current = current or (trainers[-1] if trainers else None)
+    return getattr(current, "trainer_name", None) if current else None
+
+
 def build_treatment_submission(treatment, horse=None) -> dict:
     """
-    HISA Anti-Doping and Medication Control (ADMC) — Treatment Record.
-    Required: substance, dose, route, date, administering vet.
+    HISA Anti-Doping and Medication Control (ADMC) — Treatment Record (Rule 2251(b)).
+
+    The attending veterinarian must submit, within 24 hours, the ~11 enumerated
+    fields below. Horse identity uses HISA's keys (name + year of birth + dam),
+    not the microchip; the microchip is included only as an operational reference.
     """
+    dob = getattr(horse, "date_of_birth", None) if horse else None
     return {
         "hisa_report_type": "ADMC_TREATMENT",
+        "rule_reference": "Rule 2251(b)",
         "generated_at": _now_iso(),
-        "horse": {
-            "jockey_club_chip_id": treatment.horse_chip_id,
+        # (01) identity of the Covered Horse — HISA keys: name + year of birth + dam
+        "covered_horse": {
             "name": horse.name if horse else None,
+            "year_of_birth": (str(dob)[:4] if dob else None),
+            "dam_name": getattr(horse, "dam_name", None) if horse else None,
+            "covered_since": getattr(horse, "covered_since", None) if horse else None,
+            "microchip_ref": treatment.horse_chip_id,  # operational reference only, not the HISA key
         },
-        "treatment": {
-            "date": treatment.treatment_date,
-            "substance": treatment.substance,
-            "dose": treatment.dose,
-            "route": treatment.route,
-            "withdrawal_time_hours": treatment.withdrawal_time_hours,
-            "prescribed_by": treatment.prescribed_by,
-            "administered_by": treatment.administered_by,
-            "is_prohibited_substance": treatment.is_prohibited,
-            "race_id": treatment.race_id,
-            "notes": treatment.notes,
+        # (02) Responsible Person (trainer)
+        "responsible_person": _current_trainer(horse),
+        # (03) veterinarian + (04) contact info
+        "veterinarian": {
+            "name": treatment.prescribed_by or treatment.administered_by,
+            "phone": getattr(treatment, "vet_phone", None),
+            "email": getattr(treatment, "vet_email", None),
         },
+        # (05) unsoundness / diagnostic responses, (06) clinical diagnosis, (07) condition treated
+        "diagnosis": getattr(treatment, "diagnosis", None),
+        "condition_treated": getattr(treatment, "condition_treated", None),
+        # (08) medications with date & time of dose, route, frequency, duration
+        "medications": [
+            {
+                "substance": treatment.substance,
+                "dose": treatment.dose,
+                "route": treatment.route,
+                "date": treatment.treatment_date,
+                "time": getattr(treatment, "treatment_time", None),
+                "frequency": getattr(treatment, "frequency", None),
+                "duration": getattr(treatment, "duration", None),
+                "withdrawal_time_hours": treatment.withdrawal_time_hours,
+                "is_prohibited_substance": treatment.is_prohibited,
+            }
+        ],
+        # (09)/(10) non-surgical & surgical procedures with timing
+        "procedures": getattr(treatment, "procedure", None),
+        # (11) other health / welfare information
+        "other_information": treatment.notes,
+        "administered_by": treatment.administered_by,
+        "race_id": treatment.race_id,
     }
 
 
