@@ -16,9 +16,13 @@ The platform is organized around three modules:
    inspection, scratches, and post-race test-barn sample chain of custody.
 2. **Training Center Workflows** — daily treatment and veterinary records, timed
    workout logging, and horse-in-training status for every covered horse.
-3. **Jockey Club Chip-Based Identity** — every covered horse is identified by the
+3. **Jockey Club Chip-Based Identity** — every covered horse is scanned via the
    LF microchip already mandated by The Jockey Club, read with a commodity
-   handheld scanner. That chip is the single key that ties every record together.
+   handheld scanner. Within TrackSense the chip is the operational join key that
+   ties every record together. Note: the microchip is **not** HISA's own
+   registration identifier — HISA keys a Covered Horse by name + year of birth +
+   dam + owner, with coverage beginning at the horse's first timed-and-reported
+   workout (see "Identity" below).
 
 Compliance is not a separate product surface. Officials and trainers do their
 normal jobs through TrackSense; the data they capture is structured so the
@@ -60,6 +64,15 @@ This is a deliberate departure from the prior product direction. TrackSense does
 **not** depend on UHF Gen2 lip implants, fixed-gate finish-line readers, or
 race-speed RF detection. Identity is a deliberate, point-of-care scan by an
 official or vet — not an automatic gate read.
+
+**The microchip is an identity/scan tool, not HISA's registration key.**
+Regulatory research (HISA Rule Series 2000/9000) found that HISA registers a
+Covered Horse by **name + year of birth + dam + owner ID**, and coverage begins
+on the date of the horse's **first timed-and-reported workout** — the Registration
+Rule does not mandate a microchip standard or a Jockey Club / HISA horse ID.
+TrackSense therefore uses the chip as the internal operational join key and a
+convenient point-of-care scan, while modeling the horse's HISA identity by those
+canonical fields (`dam_name`, `covered_since`, year of birth) in the data layer.
 
 ---
 

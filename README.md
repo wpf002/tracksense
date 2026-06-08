@@ -45,9 +45,11 @@ cd frontend && npm run build
    inspection, scratches, and post-race test-barn sample chain of custody.
 2. **Training Center Workflows** — daily treatment/veterinary records and timed
    workout logging for covered horses.
-3. **Jockey Club Chip-Based Identity** — every covered horse identified by its
+3. **Jockey Club Chip-Based Identity** — every covered horse scanned via its
    existing LF microchip (ISO 11784/11785), read with a commodity handheld
-   scanner; that chip ties every record together.
+   scanner; the chip is TrackSense's internal join key. (HISA's own registration
+   identity is name + year of birth + dam + owner, coverage starting at the first
+   timed workout — the chip is a scan/identity tool, not the regulatory key.)
 
 ## Architecture Summary
 
