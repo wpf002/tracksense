@@ -100,7 +100,7 @@ export default function MobileCheckin() {
           Check-In
         </h1>
         <p className="text-xs text-text-muted font-timing mt-0.5">
-          Scan or enter a Jockey Club LF microchip to verify identity before paddock entry
+          Scan or enter a horse's microchip to verify identity before paddock entry
         </p>
       </div>
 
