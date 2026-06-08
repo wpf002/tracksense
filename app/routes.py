@@ -1509,16 +1509,25 @@ def get_hisa_submission(submission_id: int, db: Session = Depends(get_db),
 @router.post("/hisa/submit/{submission_id}")
 def submit_hisa(submission_id: int, db: Session = Depends(get_db),
                 current_user: User = Depends(require_compliance_or_admin)):
-    """Mark a submission as submitted. Returns the payload for manual portal upload."""
-    sub = crud.mark_submission_submitted(db, submission_id, user_id=current_user.id)
+    """Deliver a submission via the channel for its report type: a direct vendor
+    integration for treatment records (when configured), or portal export for
+    everything else. Returns the payload + delivery result."""
+    from app import hisa_submitter
+    from app.models import HISASubmission as HISASubmissionModel
+    sub = db.get(HISASubmissionModel, submission_id)
     if not sub:
         raise HTTPException(404, f"Submission {submission_id} not found")
     import json
+    submitter = hisa_submitter.get_submitter(sub.rule_category)
+    delivery = submitter.submit(db, sub, user_id=current_user.id)
+    db.refresh(sub)
     return {
         "ok": True,
         "id": sub.id,
         "status": sub.status,
-        "submitted_at": sub.submitted_at.isoformat(),
+        "submitted_at": sub.submitted_at.isoformat() if sub.submitted_at else None,
+        "channel": delivery["channel"],
+        "delivery": delivery,
         "payload": json.loads(sub.payload_json) if sub.payload_json else None,
     }
 
