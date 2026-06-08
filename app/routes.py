@@ -1508,17 +1508,47 @@ def submit_hisa(submission_id: int, db: Session = Depends(get_db),
 def build_all_hisa_submissions(db: Session = Depends(get_db),
                                 current_user: User = Depends(require_compliance_or_admin)):
     """
-    Scan all source records with no HISASubmission yet and create pending submissions.
-    Idempotent — safe to call repeatedly.
+    Scan recent source records with no HISASubmission yet and create pending
+    submissions. Idempotent — safe to call repeatedly.
+
+    Generation is scoped to the CURRENT race meeting (the most recent race day)
+    for check-ins and samples, and to a rolling window for workouts. HISA reports
+    are filed per meeting, so without this scope the months of seeded operational
+    history would each create a submission and inflate the queue into the
+    thousands. Windows are derived from the data (not the wall clock) so they
+    stay stable across environments.
     """
     from app import hisa_builder
+    from app.models import (WorkoutRecord, TestBarnRecord, TreatmentRecord,
+                            CheckInRecord, SurfaceConditionLog, Race)
+    from sqlalchemy import func
+    from datetime import date, timedelta
     import json
     created = 0
     tenant_id = current_user.tenant_id
 
-    # Workouts
-    from app.models import WorkoutRecord
-    for w in db.query(WorkoutRecord).all():
+    WORKOUT_WINDOW_DAYS = 7
+
+    # Races on the most recent race day = the current meeting
+    latest_race_dt = db.query(func.max(Race.race_date)).scalar()
+    recent_race_ids = []
+    if latest_race_dt:
+        meeting_day = str(latest_race_dt)[:10]
+        recent_race_ids = [r.id for r in db.query(Race.id)
+            .filter(func.substr(Race.race_date, 1, 10) == meeting_day).all()]
+
+    # Workout reporting window (relative to the latest workout in the data)
+    latest_workout = db.query(func.max(WorkoutRecord.workout_date)).scalar()
+    workout_cutoff = None
+    if latest_workout:
+        wd = date.fromisoformat(str(latest_workout)[:10])
+        workout_cutoff = (wd - timedelta(days=WORKOUT_WINDOW_DAYS)).isoformat()
+
+    # Workouts — recent window only
+    workout_q = db.query(WorkoutRecord)
+    if workout_cutoff:
+        workout_q = workout_q.filter(WorkoutRecord.workout_date >= workout_cutoff)
+    for w in workout_q.all():
         if not crud.submission_exists(db, "WorkoutRecord", w.id):
             horse = crud.get_horse(db, w.horse_chip_id)
             payload = hisa_builder.build_workout_submission(w, horse=horse)
@@ -1528,20 +1558,19 @@ def build_all_hisa_submissions(db: Session = Depends(get_db),
                 payload_json=json.dumps(payload), tenant_id=tenant_id)
             created += 1
 
-    # Test barn (ADMC sample chain)
-    from app.models import TestBarnRecord
-    for t in db.query(TestBarnRecord).all():
-        if not crud.submission_exists(db, "TestBarnRecord", t.id):
-            horse = crud.get_horse(db, t.horse_chip_id)
-            payload = hisa_builder.build_sample_submission(t, horse=horse)
-            crud.create_hisa_submission(db, rule_category="ADMC_SAMPLE",
-                source_record_type="TestBarnRecord", source_record_id=t.id,
-                horse_chip_id=t.horse_chip_id,
-                payload_json=json.dumps(payload), tenant_id=tenant_id)
-            created += 1
+    # Test barn (ADMC sample chain) — current meeting only
+    if recent_race_ids:
+        for t in db.query(TestBarnRecord).filter(TestBarnRecord.race_id.in_(recent_race_ids)).all():
+            if not crud.submission_exists(db, "TestBarnRecord", t.id):
+                horse = crud.get_horse(db, t.horse_chip_id)
+                payload = hisa_builder.build_sample_submission(t, horse=horse)
+                crud.create_hisa_submission(db, rule_category="ADMC_SAMPLE",
+                    source_record_type="TestBarnRecord", source_record_id=t.id,
+                    horse_chip_id=t.horse_chip_id,
+                    payload_json=json.dumps(payload), tenant_id=tenant_id)
+                created += 1
 
-    # Treatment records (ADMC)
-    from app.models import TreatmentRecord
+    # Treatment records (ADMC) — full history (low volume, clinically relevant)
     for tr in db.query(TreatmentRecord).all():
         if not crud.submission_exists(db, "TreatmentRecord", tr.id):
             horse = crud.get_horse(db, tr.horse_chip_id)
@@ -1552,20 +1581,19 @@ def build_all_hisa_submissions(db: Session = Depends(get_db),
                 payload_json=json.dumps(payload), tenant_id=tenant_id)
             created += 1
 
-    # Check-ins
-    from app.models import CheckInRecord
-    for c in db.query(CheckInRecord).filter(CheckInRecord.race_id.isnot(None)).all():
-        if not crud.submission_exists(db, "CheckInRecord", c.id):
-            horse = crud.get_horse(db, c.horse_chip_id)
-            payload = hisa_builder.build_checkin_submission(c, horse=horse)
-            crud.create_hisa_submission(db, rule_category="CHECKIN",
-                source_record_type="CheckInRecord", source_record_id=c.id,
-                horse_chip_id=c.horse_chip_id,
-                payload_json=json.dumps(payload), tenant_id=tenant_id)
-            created += 1
+    # Check-ins — current meeting only
+    if recent_race_ids:
+        for c in db.query(CheckInRecord).filter(CheckInRecord.race_id.in_(recent_race_ids)).all():
+            if not crud.submission_exists(db, "CheckInRecord", c.id):
+                horse = crud.get_horse(db, c.horse_chip_id)
+                payload = hisa_builder.build_checkin_submission(c, horse=horse)
+                crud.create_hisa_submission(db, rule_category="CHECKIN",
+                    source_record_type="CheckInRecord", source_record_id=c.id,
+                    horse_chip_id=c.horse_chip_id,
+                    payload_json=json.dumps(payload), tenant_id=tenant_id)
+                created += 1
 
-    # Surface condition logs
-    from app.models import SurfaceConditionLog
+    # Surface condition logs — full history (low volume)
     for sl in db.query(SurfaceConditionLog).all():
         if not crud.submission_exists(db, "SurfaceConditionLog", sl.id):
             payload = hisa_builder.build_surface_submission(sl)
